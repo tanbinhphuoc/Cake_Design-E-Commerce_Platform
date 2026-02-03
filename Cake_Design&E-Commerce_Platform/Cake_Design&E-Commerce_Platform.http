@@ -1,0 +1,6 @@
+@Cake_Design_E_Commerce_Platform_HostAddress = http://localhost:5243
+
+GET {{Cake_Design_E_Commerce_Platform_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
