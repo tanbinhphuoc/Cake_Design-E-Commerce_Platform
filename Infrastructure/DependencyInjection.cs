@@ -1,3 +1,5 @@
+using Application.Services;
+using Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,10 +33,9 @@ namespace Infrastructure
                 }
             });
 
-            // Đăng ký Infrastructure services (Repositories) ở đây
-            // Ví dụ:
-            // services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
-            // services.AddScoped<IUnitOfWork, UnitOfWork>();
+            // Register Infrastructure services
+            services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+            services.AddScoped<IAuthService, AuthService>();
 
             return services;
         }
