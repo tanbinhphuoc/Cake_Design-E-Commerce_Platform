@@ -1,6 +1,8 @@
 ﻿using Application;
+using Domain.Entities;
 using Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
@@ -10,7 +12,7 @@ namespace Cake_Design_E_Commerce_Platform
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
 
@@ -105,6 +107,9 @@ namespace Cake_Design_E_Commerce_Platform
 
             var app = builder.Build();
 
+            // Seed admin accounts on startup
+            await SeedAdminAccounts(app.Services);
+
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
@@ -120,6 +125,64 @@ namespace Cake_Design_E_Commerce_Platform
             app.MapControllers();
 
             app.Run();
+        }
+
+        /// <summary>
+        /// Tự động tạo tài khoản Admin nếu chưa có trong database.
+        /// </summary>
+        private static async Task SeedAdminAccounts(IServiceProvider services)
+        {
+            using var scope = services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Kiểm tra đã có tài khoản Admin chưa
+            var hasAdmin = await context.Accounts.AnyAsync(a => a.Role == "Admin");
+            if (hasAdmin)
+            {
+                Console.WriteLine("[Seed] Admin accounts already exist. Skipping seed.");
+                return;
+            }
+
+            Console.WriteLine("[Seed] No admin accounts found. Creating default admin accounts...");
+
+            var passwordHash = BCrypt.Net.BCrypt.HashPassword("123456");
+
+            var admins = new List<Account>
+            {
+                new Account
+                {
+                    Id = Guid.NewGuid(),
+                    Username = "admin1",
+                    PasswordHash = passwordHash,
+                    FullName = "Administrator 1",
+                    Email = "admin1@cakedesign.com",
+                    Role = "Admin",
+                    IsApproved = true,
+                    WalletBalance = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new Account
+                {
+                    Id = Guid.NewGuid(),
+                    Username = "admin2",
+                    PasswordHash = passwordHash,
+                    FullName = "Administrator 2",
+                    Email = "admin2@cakedesign.com",
+                    Role = "Admin",
+                    IsApproved = true,
+                    WalletBalance = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            };
+
+            context.Accounts.AddRange(admins);
+            await context.SaveChangesAsync();
+
+            Console.WriteLine("[Seed] Created admin accounts:");
+            Console.WriteLine("  - Username: admin1 | Password: 123456");
+            Console.WriteLine("  - Username: admin2 | Password: 123456");
         }
     }
 }
