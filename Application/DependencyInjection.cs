@@ -1,3 +1,4 @@
+using Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Application
@@ -6,9 +7,17 @@ namespace Application
     {
         public static IServiceCollection AddApplicationServices(this IServiceCollection services)
         {
-            // Đăng ký Application services ở đây
-            // Ví dụ:
-            // services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<ICartService, CartService>();
+            services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<IOrderService, OrderService>();
+            services.AddScoped<IShopService, ShopService>();
+            services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IWishlistService, WishlistService>();
+            services.AddScoped<IWalletService, WalletService>();
+            services.AddScoped<IAdminService, AdminService>();
+            services.AddScoped<IReportService, ReportService>();
+            services.AddScoped<ICategoryTagService, CategoryTagService>();
+
             return services;
         }
     }

@@ -1,4 +1,6 @@
+using Application.Interfaces;
 using Application.Services;
+using Infrastructure.Repositories;
 using Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -33,9 +35,14 @@ namespace Infrastructure
                 }
             });
 
+            // Register UnitOfWork
+            services.AddScoped<IUnitOfWork, UnitOfWork>();
+
             // Register Infrastructure services
             services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
             services.AddScoped<IAuthService, AuthService>();
+            services.AddScoped<IVnPayService, VnPayService>();
+            services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 
             return services;
         }

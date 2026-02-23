@@ -1,8 +1,7 @@
 using Application.DTOs;
-using Infrastructure;
+using Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Cake_Design_E_Commerce_Platform.Controllers
 {
@@ -10,197 +9,55 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
     [Route("api")]
     public class CategoryTagController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly ICategoryTagService _service;
+        public CategoryTagController(ICategoryTagService service) { _service = service; }
 
-        public CategoryTagController(AppDbContext context)
-        {
-            _context = context;
-        }
+        [HttpGet("categories"), AllowAnonymous]
+        public async Task<IActionResult> GetCategories() => Ok(await _service.GetCategoriesAsync());
 
-        // ===== Categories (Public) =====
-
-        /// <summary>
-        /// Get all categories (public).
-        /// </summary>
-        [HttpGet("categories")]
-        [AllowAnonymous]
-        public async Task<IActionResult> GetCategories()
-        {
-            var categories = await _context.Categories
-                .Where(c => c.IsActive)
-                .OrderBy(c => c.SortOrder)
-                .Select(c => new CategoryDto
-                {
-                    Id = c.Id,
-                    Name = c.Name,
-                    Description = c.Description,
-                    ImageUrl = c.ImageUrl,
-                    SortOrder = c.SortOrder,
-                    IsActive = c.IsActive
-                })
-                .ToListAsync();
-
-            return Ok(categories);
-        }
-
-        // ===== Categories (Admin) =====
-
-        /// <summary>
-        /// Create a category (Admin only).
-        /// </summary>
-        [HttpPost("categories")]
-        [Authorize(Roles = "Admin")]
+        [HttpPost("categories"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateCategory([FromBody] CreateCategoryDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Name))
-                return BadRequest(new { Message = "Category name is required." });
-
-            var existing = await _context.Categories
-                .FirstOrDefaultAsync(c => c.Name.ToLower() == dto.Name.ToLower());
-            if (existing != null)
-                return BadRequest(new { Message = "Category with this name already exists." });
-
-            var category = new Domain.Entities.Category
-            {
-                Id = Guid.NewGuid(),
-                Name = dto.Name,
-                Description = dto.Description ?? string.Empty,
-                ImageUrl = dto.ImageUrl ?? string.Empty,
-                SortOrder = dto.SortOrder,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.Categories.Add(category);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Category created.", CategoryId = category.Id });
+            try { var id = await _service.CreateCategoryAsync(dto); return Ok(new { Message = "Category created.", CategoryId = id }); }
+            catch (Exception ex) { return BadRequest(new { ex.Message }); }
         }
 
-        /// <summary>
-        /// Update a category (Admin only).
-        /// </summary>
-        [HttpPut("categories/{id:guid}")]
-        [Authorize(Roles = "Admin")]
+        [HttpPut("categories/{id:guid}"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryDto dto)
         {
-            var category = await _context.Categories.FindAsync(id);
-            if (category == null)
-                return NotFound(new { Message = "Category not found." });
-
-            if (dto.Name != null) category.Name = dto.Name;
-            if (dto.Description != null) category.Description = dto.Description;
-            if (dto.ImageUrl != null) category.ImageUrl = dto.ImageUrl;
-            if (dto.SortOrder.HasValue) category.SortOrder = dto.SortOrder.Value;
-            if (dto.IsActive.HasValue) category.IsActive = dto.IsActive.Value;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Category updated." });
+            try { return Ok(new { Message = await _service.UpdateCategoryAsync(id, dto) }); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
-        /// <summary>
-        /// Delete a category (Admin only).
-        /// </summary>
-        [HttpDelete("categories/{id:guid}")]
-        [Authorize(Roles = "Admin")]
+        [HttpDelete("categories/{id:guid}"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteCategory(Guid id)
         {
-            var category = await _context.Categories.FindAsync(id);
-            if (category == null)
-                return NotFound(new { Message = "Category not found." });
-
-            _context.Categories.Remove(category);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Category deleted." });
+            try { return Ok(new { Message = await _service.DeleteCategoryAsync(id) }); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
-        // ===== Tags (Public) =====
+        [HttpGet("tags"), AllowAnonymous]
+        public async Task<IActionResult> GetTags() => Ok(await _service.GetTagsAsync());
 
-        /// <summary>
-        /// Get all tags (public).
-        /// </summary>
-        [HttpGet("tags")]
-        [AllowAnonymous]
-        public async Task<IActionResult> GetTags()
-        {
-            var tags = await _context.Tags
-                .OrderBy(t => t.Name)
-                .Select(t => new TagDto
-                {
-                    Id = t.Id,
-                    Name = t.Name
-                })
-                .ToListAsync();
-
-            return Ok(tags);
-        }
-
-        // ===== Tags (Admin) =====
-
-        /// <summary>
-        /// Create a tag (Admin only).
-        /// </summary>
-        [HttpPost("tags")]
-        [Authorize(Roles = "Admin")]
+        [HttpPost("tags"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateTag([FromBody] CreateTagDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Name))
-                return BadRequest(new { Message = "Tag name is required." });
-
-            var existing = await _context.Tags
-                .FirstOrDefaultAsync(t => t.Name.ToLower() == dto.Name.ToLower());
-            if (existing != null)
-                return BadRequest(new { Message = "Tag with this name already exists." });
-
-            var tag = new Domain.Entities.Tag
-            {
-                Id = Guid.NewGuid(),
-                Name = dto.Name,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.Tags.Add(tag);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Tag created.", TagId = tag.Id });
+            try { var id = await _service.CreateTagAsync(dto); return Ok(new { Message = "Tag created.", TagId = id }); }
+            catch (Exception ex) { return BadRequest(new { ex.Message }); }
         }
 
-        /// <summary>
-        /// Update a tag (Admin only).
-        /// </summary>
-        [HttpPut("tags/{id:guid}")]
-        [Authorize(Roles = "Admin")]
+        [HttpPut("tags/{id:guid}"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateTag(Guid id, [FromBody] CreateTagDto dto)
         {
-            var tag = await _context.Tags.FindAsync(id);
-            if (tag == null)
-                return NotFound(new { Message = "Tag not found." });
-
-            if (!string.IsNullOrWhiteSpace(dto.Name))
-                tag.Name = dto.Name;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Tag updated." });
+            try { return Ok(new { Message = await _service.UpdateTagAsync(id, dto) }); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
-        /// <summary>
-        /// Delete a tag (Admin only).
-        /// </summary>
-        [HttpDelete("tags/{id:guid}")]
-        [Authorize(Roles = "Admin")]
+        [HttpDelete("tags/{id:guid}"), Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteTag(Guid id)
         {
-            var tag = await _context.Tags.FindAsync(id);
-            if (tag == null)
-                return NotFound(new { Message = "Tag not found." });
-
-            _context.Tags.Remove(tag);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { Message = "Tag deleted." });
+            try { return Ok(new { Message = await _service.DeleteTagAsync(id) }); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
     }
 }
