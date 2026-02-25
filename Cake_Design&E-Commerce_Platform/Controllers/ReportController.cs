@@ -21,10 +21,10 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (ArgumentException ex) { return BadRequest(new { ex.Message }); }
         }
 
-        [HttpGet("admin/reports"), Authorize(Roles = "Admin")]
+        [HttpGet("admin/reports"), Authorize(Roles = "Admin,SystemStaff")]
         public async Task<IActionResult> GetReports([FromQuery] string? status) => Ok(await _reportService.GetReportsAsync(status));
 
-        [HttpPut("admin/reports/{id:guid}"), Authorize(Roles = "Admin")]
+        [HttpPut("admin/reports/{id:guid}"), Authorize(Roles = "Admin,SystemStaff")]
         public async Task<IActionResult> UpdateReport(Guid id, [FromBody] UpdateReportDto dto)
         {
             try { return Ok(new { Message = await _reportService.UpdateReportAsync(id, dto) }); }

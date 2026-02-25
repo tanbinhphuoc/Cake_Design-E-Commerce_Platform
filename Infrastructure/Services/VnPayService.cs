@@ -37,8 +37,8 @@ namespace Infrastructure.Services
                 { "vnp_Locale", "vn" },
                 { "vnp_ReturnUrl", _returnUrl },
                 { "vnp_IpAddr", ipAddress },
-                { "vnp_CreateDate", DateTime.Now.ToString("yyyyMMddHHmmss") },
-                { "vnp_ExpireDate", DateTime.Now.AddMinutes(15).ToString("yyyyMMddHHmmss") }
+                { "vnp_CreateDate", DateTime.UtcNow.ToString("yyyyMMddHHmmss") },
+                { "vnp_ExpireDate", DateTime.UtcNow.AddMinutes(15).ToString("yyyyMMddHHmmss") }
             };
 
             var queryString = BuildQueryString(vnpayData);

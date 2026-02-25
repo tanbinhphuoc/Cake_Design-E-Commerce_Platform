@@ -21,7 +21,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
         }
 
-        [HttpPost("admin/shop/approve/{userId:guid}"), Authorize(Roles = "Admin,Staff")]
+        [HttpPost("admin/shop/approve/{userId:guid}"), Authorize(Roles = "Admin,SystemStaff")]
         public async Task<IActionResult> ApproveShop(Guid userId)
         {
             try { return Ok(new { Message = await _shopService.ApproveShopAsync(userId) }); }

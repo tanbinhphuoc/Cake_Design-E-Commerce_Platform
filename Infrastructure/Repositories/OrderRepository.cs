@@ -61,5 +61,12 @@ namespace Infrastructure.Repositories
                 .Where(o => o.Status == "Completed" && o.CreatedAt >= today)
                 .SumAsync(o => o.TotalAmount);
         }
+
+        public async Task<bool> HasUserPurchasedProductAsync(Guid userId, Guid productId)
+        {
+            return await _dbSet
+                .Where(o => o.UserId == userId && o.Status == "Completed")
+                .AnyAsync(o => o.Items.Any(oi => oi.ProductId == productId));
+        }
     }
 }

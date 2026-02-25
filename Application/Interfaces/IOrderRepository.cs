@@ -10,5 +10,6 @@ namespace Application.Interfaces
         Task<List<Order>> GetOrdersByShopIdAsync(Guid shopId);
         Task<decimal> GetTotalRevenueAsync();
         Task<decimal> GetTodayRevenueAsync();
+        Task<bool> HasUserPurchasedProductAsync(Guid userId, Guid productId);
     }
 }
