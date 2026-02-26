@@ -43,6 +43,6 @@ namespace Application.Services
 
         // VNPay
         Task<VnPayIpnResult> ProcessVnPayIpnAsync(Dictionary<string, string> vnpayData);
-        VnPayReturnResult ProcessVnPayReturn(Dictionary<string, string> vnpayData);
+        Task<VnPayReturnResult> ProcessVnPayReturnAsync(Dictionary<string, string> vnpayData);
     }
 }

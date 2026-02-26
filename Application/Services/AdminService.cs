@@ -83,7 +83,7 @@ namespace Application.Services
         {
             var account = await _uow.Accounts.GetByIdAsync(userId);
             if (account == null) throw new ArgumentException("User not found.");
-            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff" };
+            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff" };
             if (!valid.Contains(newRole)) throw new ArgumentException("Invalid role.");
             account.Role = newRole;
             account.UpdatedAt = DateTime.UtcNow;

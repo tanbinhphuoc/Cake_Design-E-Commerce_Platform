@@ -73,10 +73,10 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         }
 
         [HttpGet("orders/vnpay/return"), AllowAnonymous]
-        public IActionResult VnPayReturn()
+        public async Task<IActionResult> VnPayReturn()
         {
             var data = Request.Query.Keys.ToDictionary(k => k, k => Request.Query[k].ToString());
-            return Ok(_orderService.ProcessVnPayReturn(data));
+            return Ok(await _orderService.ProcessVnPayReturnAsync(data));
         }
 
         // Shop Orders

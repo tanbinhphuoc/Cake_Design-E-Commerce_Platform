@@ -7,7 +7,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
 {
     [ApiController]
     [Route("api/admin")]
-    [Authorize(Roles = "Admin,Staff")]
+    [Authorize(Roles = "Admin,SystemStaff")]
     public class AdminController : ControllerBase
     {
         private readonly IAdminService _adminService;

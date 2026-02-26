@@ -34,6 +34,9 @@ namespace Domain.Entities
         [MaxLength(20)]
         public string PaymentStatus { get; set; } = "Pending"; // "Pending", "Paid", "Refunded"
 
+        [MaxLength(50)]
+        public string? VnPayGroupId { get; set; } // Links multiple orders from the same VNPay checkout
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

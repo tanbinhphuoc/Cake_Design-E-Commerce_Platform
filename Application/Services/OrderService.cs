@@ -22,6 +22,14 @@ namespace Application.Services
             var cart = await _uow.Carts.GetCartWithItemsAndProductsAsync(userId);
             if (cart == null || !cart.Items.Any()) throw new ArgumentException("Cart is empty.");
 
+            // Filter by selected cart items if CartItemIds is provided
+            var selectedItems = cart.Items.ToList();
+            if (dto.CartItemIds != null && dto.CartItemIds.Any())
+            {
+                selectedItems = selectedItems.Where(ci => dto.CartItemIds.Contains(ci.Id)).ToList();
+                if (!selectedItems.Any()) throw new ArgumentException("No matching items found in cart.");
+            }
+
             // Validate shipping address
             if (dto.ShippingAddressId.HasValue)
             {
@@ -29,18 +37,20 @@ namespace Application.Services
                 if (addr == null) throw new ArgumentException("Shipping address not found.");
             }
 
-            foreach (var item in cart.Items)
+            foreach (var item in selectedItems)
                 if (item.Product.Stock < item.Quantity)
                     throw new ArgumentException($"Insufficient stock for '{item.Product.Name}'. Available: {item.Product.Stock}");
 
-            var totalAmount = cart.Items.Sum(ci => ci.Product.Price * ci.Quantity);
+            var totalAmount = selectedItems.Sum(ci => ci.Product.Price * ci.Quantity);
             if (dto.PaymentMethod == "Wallet" && account.WalletBalance < totalAmount)
                 throw new InvalidOperationException($"Insufficient wallet balance. Required: {totalAmount:F2}, Available: {account.WalletBalance:F2}");
 
             var createdOrders = new List<object>();
             var orderIds = new List<Guid>();
+            // Generate VnPayGroupId for linking multiple orders in one VNPay checkout
+            var vnPayGroupId = dto.PaymentMethod == "VNPay" ? Guid.NewGuid().ToString("N")[..16] : null;
 
-            foreach (var shopGroup in cart.Items.GroupBy(ci => ci.Product.ShopId))
+            foreach (var shopGroup in selectedItems.GroupBy(ci => ci.Product.ShopId))
             {
                 var shopTotal = shopGroup.Sum(ci => ci.Product.Price * ci.Quantity);
                 var order = new Order
@@ -49,6 +59,7 @@ namespace Application.Services
                     ShippingAddressId = dto.ShippingAddressId, TotalAmount = shopTotal, Status = "Pending",
                     Note = dto.Note, PaymentMethod = dto.PaymentMethod,
                     PaymentStatus = dto.PaymentMethod == "Wallet" ? "Paid" : "Pending",
+                    VnPayGroupId = vnPayGroupId,
                     CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
                 };
                 foreach (var ci in shopGroup)
@@ -73,14 +84,16 @@ namespace Application.Services
                 account.WalletBalance -= totalAmount;
                 await _uow.WalletTransactions.AddAsync(new WalletTransaction { Id = Guid.NewGuid(), WalletOwnerId = account.Id, WalletType = "User", Amount = -totalAmount, TransactionType = "Purchase", Description = "Order purchase", BalanceAfter = account.WalletBalance, CreatedAt = DateTime.UtcNow });
             }
-            _uow.CartItems.RemoveRange(cart.Items);
+            // Only remove purchased items from cart (not all items)
+            _uow.CartItems.RemoveRange(selectedItems);
             await _uow.SaveChangesAsync();
 
             var result = new CreateOrderResult { Orders = createdOrders, TotalAmount = totalAmount };
             if (dto.PaymentMethod == "VNPay")
             {
-                var orderInfo = $"Thanh toan don hang {string.Join(", ", orderIds.Select(id => id.ToString()[..8]))}";
-                result.PaymentUrl = _vnPay.CreatePaymentUrl(orderIds.First(), totalAmount, orderInfo, ipAddress);
+                var orderInfo = $"Thanh toan don hang {vnPayGroupId}";
+                // Use vnPayGroupId as vnp_TxnRef so we can find all orders on callback
+                result.PaymentUrl = _vnPay.CreatePaymentUrl(vnPayGroupId!, totalAmount, orderInfo, ipAddress);
                 result.RequiresPaymentRedirect = true;
             }
             else { result.RemainingBalance = account.WalletBalance; }
@@ -177,36 +190,64 @@ namespace Application.Services
             if (!_vnPay.ValidateCallback(vnpayData)) return new VnPayIpnResult { RspCode = "97", Message = "Invalid signature" };
             var responseCode = _vnPay.GetResponseCode(vnpayData);
             var txnRef = vnpayData.ContainsKey("vnp_TxnRef") ? vnpayData["vnp_TxnRef"] : "";
-            if (!Guid.TryParse(txnRef, out var orderId)) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
-            var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
-            if (order == null) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
-            if (order.PaymentStatus == "Paid") return new VnPayIpnResult { RspCode = "02", Message = "Already confirmed" };
+            if (string.IsNullOrEmpty(txnRef)) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
 
-            if (responseCode == "00")
-            {
-                order.PaymentStatus = "Paid"; order.UpdatedAt = DateTime.UtcNow;
-                var payment = await _uow.Payments.GetByOrderIdAsync(orderId);
-                if (payment != null) { payment.Status = "Completed"; payment.CompletedAt = DateTime.UtcNow; payment.TransactionRef = vnpayData.ContainsKey("vnp_TransactionNo") ? vnpayData["vnp_TransactionNo"] : null; }
-                // Credit shop owner's wallet (unified)
-                await CreditShopOwnerAsync(order.ShopId, order.TotalAmount, order.Id, "Sale", $"VNPay payment for order {order.Id}");
-            }
-            else
-            {
-                order.PaymentStatus = "Failed"; order.Status = "Cancelled"; order.UpdatedAt = DateTime.UtcNow;
-                foreach (var item in order.Items) item.Product.Stock += item.Quantity;
-                var payment = await _uow.Payments.GetByOrderIdAsync(orderId);
-                if (payment != null) payment.Status = "Failed";
-            }
+            // Find all orders by VnPayGroupId
+            var orders = await _uow.Orders.GetByVnPayGroupIdAsync(txnRef);
+            if (!orders.Any()) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
+            if (orders.All(o => o.PaymentStatus == "Paid")) return new VnPayIpnResult { RspCode = "02", Message = "Already confirmed" };
+
+            var transactionNo = vnpayData.ContainsKey("vnp_TransactionNo") ? vnpayData["vnp_TransactionNo"] : null;
+            await UpdateVnPayOrdersStatusAsync(orders, responseCode, transactionNo);
             await _uow.SaveChangesAsync();
             return new VnPayIpnResult { RspCode = "00", Message = "Confirm Success" };
         }
 
-        public VnPayReturnResult ProcessVnPayReturn(Dictionary<string, string> vnpayData)
+        public async Task<VnPayReturnResult> ProcessVnPayReturnAsync(Dictionary<string, string> vnpayData)
         {
             var isValid = _vnPay.ValidateCallback(vnpayData);
             var responseCode = _vnPay.GetResponseCode(vnpayData);
             var txnRef = vnpayData.ContainsKey("vnp_TxnRef") ? vnpayData["vnp_TxnRef"] : "";
+
+            if (isValid && !string.IsNullOrEmpty(txnRef))
+            {
+                // Update payment status for all orders in this VNPay group
+                var orders = await _uow.Orders.GetByVnPayGroupIdAsync(txnRef);
+                if (orders.Any() && orders.Any(o => o.PaymentStatus == "Pending"))
+                {
+                    var transactionNo = vnpayData.ContainsKey("vnp_TransactionNo") ? vnpayData["vnp_TransactionNo"] : null;
+                    await UpdateVnPayOrdersStatusAsync(orders, responseCode, transactionNo);
+                    await _uow.SaveChangesAsync();
+                }
+            }
+
             return new VnPayReturnResult { Success = isValid && responseCode == "00", OrderId = txnRef, ResponseCode = responseCode, Message = responseCode == "00" ? "Payment successful" : "Payment failed or cancelled" };
+        }
+
+        /// <summary>
+        /// Update payment status for all orders linked by VnPayGroupId
+        /// </summary>
+        private async Task UpdateVnPayOrdersStatusAsync(List<Order> orders, string responseCode, string? transactionNo)
+        {
+            foreach (var order in orders)
+            {
+                if (order.PaymentStatus == "Paid") continue; // Skip already paid
+
+                if (responseCode == "00")
+                {
+                    order.PaymentStatus = "Paid"; order.UpdatedAt = DateTime.UtcNow;
+                    var payment = await _uow.Payments.GetByOrderIdAsync(order.Id);
+                    if (payment != null) { payment.Status = "Completed"; payment.CompletedAt = DateTime.UtcNow; payment.TransactionRef = transactionNo; }
+                    await CreditShopOwnerAsync(order.ShopId, order.TotalAmount, order.Id, "Sale", $"VNPay payment for order {order.Id}");
+                }
+                else
+                {
+                    order.PaymentStatus = "Failed"; order.Status = "Cancelled"; order.UpdatedAt = DateTime.UtcNow;
+                    foreach (var item in order.Items) item.Product.Stock += item.Quantity;
+                    var payment = await _uow.Payments.GetByOrderIdAsync(order.Id);
+                    if (payment != null) payment.Status = "Failed";
+                }
+            }
         }
 
         // === Helpers ===

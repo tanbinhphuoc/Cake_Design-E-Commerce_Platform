@@ -40,7 +40,7 @@ namespace Application.Services
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
             };
             await _uow.Shops.AddAsync(shop);
-            account.Role = "ShopOwner"; account.IsApproved = false; account.UpdatedAt = DateTime.UtcNow;
+            account.IsApproved = false; account.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync();
             return new { Message = "Shop request submitted. Awaiting admin approval.", ShopId = shop.Id };
         }
@@ -49,9 +49,9 @@ namespace Application.Services
         {
             var account = await _uow.Accounts.GetByIdWithShopAsync(userId);
             if (account == null) throw new ArgumentException("User not found.");
-            if (account.Role != "ShopOwner" || account.Shop == null) throw new ArgumentException("No pending shop request.");
-            if (account.IsApproved) throw new InvalidOperationException("Shop is already approved.");
-            account.IsApproved = true; account.Shop.IsActive = true;
+            if (account.Shop == null) throw new ArgumentException("No pending shop request.");
+            if (account.IsApproved && account.Role == "ShopOwner") throw new InvalidOperationException("Shop is already approved.");
+            account.IsApproved = true; account.Role = "ShopOwner"; account.Shop.IsActive = true;
             account.Shop.UpdatedAt = DateTime.UtcNow; account.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync();
             return $"Shop approved for '{account.Username}'.";

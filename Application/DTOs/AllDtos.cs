@@ -204,6 +204,7 @@ namespace Application.DTOs
     // ===== Order (extended) =====
     public class CreateOrderDto
     {
+        public List<Guid>? CartItemIds { get; set; } // null = all items in cart
         public Guid? ShippingAddressId { get; set; }
         public string? Note { get; set; }
         public string PaymentMethod { get; set; } = "Wallet";
