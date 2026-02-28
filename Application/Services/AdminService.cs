@@ -83,12 +83,51 @@ namespace Application.Services
         {
             var account = await _uow.Accounts.GetByIdAsync(userId);
             if (account == null) throw new ArgumentException("User not found.");
-            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff" };
+            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff", "Shipper" };
             if (!valid.Contains(newRole)) throw new ArgumentException("Invalid role.");
             account.Role = newRole;
             account.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync();
             return $"User role updated to '{newRole}'.";
+        }
+
+        // === System Wallet ===
+
+        public async Task<List<object>> GetSystemWalletsAsync()
+        {
+            var wallets = await _uow.SystemWallets.GetAllAsync();
+            return wallets.Select(w => (object)new
+            {
+                w.Id,
+                w.WalletType,
+                w.Balance,
+                w.Description,
+                w.CreatedAt,
+                w.UpdatedAt
+            }).ToList();
+        }
+
+        public async Task<List<object>> GetSystemWalletTransactionsAsync(string? walletType, int count = 50)
+        {
+            List<SystemWalletTransaction> transactions;
+            
+            if (!string.IsNullOrEmpty(walletType))
+                transactions = await _uow.SystemWalletTransactions.GetByWalletTypeAsync(walletType);
+            else
+                transactions = await _uow.SystemWalletTransactions.GetRecentAsync(count);
+
+            return transactions.Select(t => (object)new
+            {
+                t.Id,
+                t.WalletType,
+                t.Amount,
+                t.TransactionType,
+                t.BalanceAfter,
+                t.OrderId,
+                t.RelatedUserId,
+                t.Description,
+                t.CreatedAt
+            }).ToList();
         }
     }
 }

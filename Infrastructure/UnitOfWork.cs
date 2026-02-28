@@ -24,6 +24,13 @@ namespace Infrastructure
         public ICartItemRepository CartItems { get; }
         public IOrderItemRepository OrderItems { get; }
         public IProductTagRepository ProductTags { get; }
+        
+        // System Wallet
+        public ISystemWalletRepository SystemWallets { get; }
+        public ISystemWalletTransactionRepository SystemWalletTransactions { get; }
+
+        // Refund
+        public IRefundRequestRepository RefundRequests { get; }
 
         public UnitOfWork(AppDbContext context)
         {
@@ -45,6 +52,13 @@ namespace Infrastructure
             CartItems = new CartItemRepository(context);
             OrderItems = new OrderItemRepository(context);
             ProductTags = new ProductTagRepository(context);
+            
+            // System Wallet
+            SystemWallets = new SystemWalletRepository(context);
+            SystemWalletTransactions = new SystemWalletTransactionRepository(context);
+
+            // Refund
+            RefundRequests = new RefundRequestRepository(context);
         }
 
         public async Task<int> SaveChangesAsync()

@@ -26,6 +26,13 @@ namespace Infrastructure
         public DbSet<WalletTransaction> WalletTransactions { get; set; } = null!;
         public DbSet<Payment> Payments { get; set; } = null!;
         public DbSet<Report> Reports { get; set; } = null!;
+        
+        // System Wallet
+        public DbSet<SystemWallet> SystemWallets { get; set; } = null!;
+        public DbSet<SystemWalletTransaction> SystemWalletTransactions { get; set; } = null!;
+
+        // Refund
+        public DbSet<RefundRequest> RefundRequests { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -173,6 +180,11 @@ namespace Infrastructure
                       .WithOne(p => p.Order)
                       .HasForeignKey<Payment>(p => p.OrderId)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(o => o.Shipper)
+                      .WithMany()
+                      .HasForeignKey(o => o.ShipperId)
+                      .OnDelete(DeleteBehavior.SetNull);
             });
 
             // ===== OrderItem =====
@@ -200,6 +212,40 @@ namespace Infrastructure
             modelBuilder.Entity<ShopStaff>(entity =>
             {
                 entity.HasIndex(ss => new { ss.ShopId, ss.AccountId }).IsUnique();
+            });
+
+            // ===== SystemWallet =====
+            modelBuilder.Entity<SystemWallet>(entity =>
+            {
+                entity.HasIndex(w => w.WalletType).IsUnique();
+            });
+
+            // ===== SystemWalletTransaction =====
+            modelBuilder.Entity<SystemWalletTransaction>(entity =>
+            {
+                entity.HasOne(t => t.Order)
+                      .WithMany()
+                      .HasForeignKey(t => t.OrderId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasIndex(t => t.WalletType);
+                entity.HasIndex(t => t.CreatedAt);
+            });
+
+            // ===== RefundRequest =====
+            modelBuilder.Entity<RefundRequest>(entity =>
+            {
+                entity.HasOne(r => r.Order)
+                      .WithOne(o => o.RefundRequest)
+                      .HasForeignKey<RefundRequest>(r => r.OrderId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(r => r.Customer)
+                      .WithMany()
+                      .HasForeignKey(r => r.CustomerId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(r => r.Status);
             });
 
             // Apply any configuration classes from assembly

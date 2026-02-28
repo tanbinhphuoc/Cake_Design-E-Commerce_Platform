@@ -35,6 +35,10 @@ namespace Domain.Entities
         [MaxLength(100)]
         public string City { get; set; } = string.Empty;
 
+        public int? ProvinceId { get; set; }
+        public int? DistrictId { get; set; }
+        public string? WardCode { get; set; }
+
         public bool IsDefault { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

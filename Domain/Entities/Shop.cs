@@ -27,6 +27,10 @@ namespace Domain.Entities
         [MaxLength(500)]
         public string Address { get; set; } = string.Empty;
 
+        public int? ProvinceId { get; set; }
+        public int? DistrictId { get; set; }
+        public string? WardCode { get; set; }
+
         [MaxLength(20)]
         public string Phone { get; set; } = string.Empty;
 

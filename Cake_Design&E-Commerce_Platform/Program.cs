@@ -106,8 +106,12 @@ namespace Cake_Design_E_Commerce_Platform
                     OnTokenValidated = async context =>
                     {
                         var redis = context.HttpContext.RequestServices.GetRequiredService<IRedisCacheService>();
-                        var userId = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
-                        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+
+                        // "sub" bị auto-map thành ClaimTypes.NameIdentifier
+                        var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                        // "jti" bị auto-map thành "jti" HOẶC có thể không map — tìm cả hai
+                        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti)
+                               ?? context.Principal?.FindFirstValue("jti");
 
                         if (string.IsNullOrWhiteSpace(jti) || string.IsNullOrWhiteSpace(userId))
                         {

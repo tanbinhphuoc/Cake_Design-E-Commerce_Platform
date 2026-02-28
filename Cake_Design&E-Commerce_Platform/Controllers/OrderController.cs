@@ -63,6 +63,15 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
         }
 
+        [HttpPost("orders/{id:guid}/refund"), Authorize]
+        public async Task<IActionResult> RequestRefund(Guid id, [FromBody] CreateRefundRequestDto dto)
+        {
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            try { return Ok(new { Message = await _orderService.RequestRefundAsync(userId.Value, id, dto) }); }
+            catch (ArgumentException ex) { return BadRequest(new { ex.Message }); }
+            catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
+        }
+
         // VNPay
         [HttpGet("orders/vnpay/ipn"), AllowAnonymous]
         public async Task<IActionResult> VnPayIpn()
@@ -76,7 +85,14 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         public async Task<IActionResult> VnPayReturn()
         {
             var data = Request.Query.Keys.ToDictionary(k => k, k => Request.Query[k].ToString());
-            return Ok(await _orderService.ProcessVnPayReturnAsync(data));
+            var result = await _orderService.ProcessVnPayReturnAsync(data);
+            
+            // Redirect v? frontend v?i k?t qu?
+            var frontendUrl = result.Success 
+                ? $"http://localhost:3000/order-success?status=success&orderId={result.OrderId}"
+                : $"http://localhost:3000/order-success?status=failed&message={result.Message}";
+            
+            return Redirect(frontendUrl);
         }
 
         // Shop Orders

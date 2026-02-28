@@ -17,6 +17,7 @@ namespace Application
             services.AddScoped<IAdminService, AdminService>();
             services.AddScoped<IReportService, ReportService>();
             services.AddScoped<ICategoryTagService, CategoryTagService>();
+            services.AddScoped<IShipperService, ShipperService>();
 
             return services;
         }
