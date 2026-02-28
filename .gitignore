@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 # API Test Data (local only - do NOT commit)
 api-test-data.json
+
+# Test API folder (local only - do NOT commit)
+test api/

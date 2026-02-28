@@ -1,5 +1,6 @@
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Infrastructure
@@ -10,6 +11,7 @@ namespace Infrastructure
         {
             using var scope = services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
             if (await db.Accounts.AnyAsync(a => a.Role == "Customer"))
             {
@@ -19,7 +21,8 @@ namespace Infrastructure
 
             Console.WriteLine("[Seed] Seeding full mock data...");
 
-            var pw = BCrypt.Net.BCrypt.HashPassword("123456");
+            var seedPassword = configuration["SeedData:DefaultPassword"] ?? "123456";
+            var pw = BCrypt.Net.BCrypt.HashPassword(seedPassword);
             var now = DateTime.UtcNow;
 
             // ========== ACCOUNTS ==========
@@ -46,9 +49,9 @@ namespace Infrastructure
             db.Accounts.AddRange(accounts);
 
             // ========== SHOPS ==========
-            var shop1 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000001"), OwnerId = shopOwner1.Id, ShopName = "Tiệm Bánh Ngọt Ngào", Description = "Chuyên bánh sinh nhật, bánh kem tươi cao cấp", AvatarUrl = "https://picsum.photos/seed/shop1/200", BannerUrl = "https://picsum.photos/seed/shop1b/800/300", Address = "123 Nguyễn Huệ, Q1, TP.HCM", Phone = "02812345678", WalletBalance = 5000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
-            var shop2 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000002"), OwnerId = shopOwner2.Id, ShopName = "Bakery Hạnh Phúc", Description = "Bánh mì, croissant, pastry kiểu Pháp", AvatarUrl = "https://picsum.photos/seed/shop2/200", BannerUrl = "https://picsum.photos/seed/shop2b/800/300", Address = "456 Lê Lợi, Q3, TP.HCM", Phone = "02887654321", WalletBalance = 3000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
-            var shop3 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000003"), OwnerId = shopOwner3.Id, ShopName = "Sweet Dream Pastry", Description = "Cupcake, macaron và dessert phong cách Nhật", AvatarUrl = "https://picsum.photos/seed/shop3/200", BannerUrl = "https://picsum.photos/seed/shop3b/800/300", Address = "789 Trần Hưng Đạo, Q5, TP.HCM", Phone = "02811223344", WalletBalance = 2000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
+            var shop1 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000001"), OwnerId = shopOwner1.Id, ShopName = "Tiệm Bánh Ngọt Ngào", Description = "Chuyên bánh sinh nhật, bánh kem tươi cao cấp", AvatarUrl = "https://picsum.photos/seed/shop1/200", BannerUrl = "https://picsum.photos/seed/shop1b/800/300", Address = "123 Nguyễn Huệ, Quận 1, TP.HCM", ProvinceId = 1, DistrictId = 1, WardCode = "1", Phone = "02812345678", WalletBalance = 5000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
+            var shop2 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000002"), OwnerId = shopOwner2.Id, ShopName = "Bakery Hạnh Phúc", Description = "Bánh mì, croissant, pastry kiểu Pháp", AvatarUrl = "https://picsum.photos/seed/shop2/200", BannerUrl = "https://picsum.photos/seed/shop2b/800/300", Address = "456 Lê Lợi, Quận 1, TP.HCM", ProvinceId = 1, DistrictId = 1, WardCode = "2", Phone = "02887654321", WalletBalance = 3000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
+            var shop3 = new Shop { Id = Guid.Parse("51000000-0000-0000-0000-000000000003"), OwnerId = shopOwner3.Id, ShopName = "Sweet Dream Pastry", Description = "Cupcake, macaron và dessert phong cách Nhật", AvatarUrl = "https://picsum.photos/seed/shop3/200", BannerUrl = "https://picsum.photos/seed/shop3b/800/300", Address = "789 Trần Hưng Đạo, Quận 5, TP.HCM", ProvinceId = 1, DistrictId = 5, WardCode = "74", Phone = "02811223344", WalletBalance = 2000000m, IsActive = true, CreatedAt = now, UpdatedAt = now };
 
             db.Shops.AddRange(shop1, shop2, shop3);
 
@@ -112,12 +115,12 @@ namespace Infrastructure
             );
 
             // ========== ADDRESSES ==========
-            var addr1 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000001"), UserId = cust1.Id, ReceiverName = "Phạm Thị Mai", Phone = "0903000001", Street = "12 Nguyễn Trãi", Ward = "Phường Bến Thành", District = "Quận 1", City = "TP. Hồ Chí Minh", IsDefault = true, CreatedAt = now };
-            var addr2 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000002"), UserId = cust1.Id, ReceiverName = "Phạm Thị Mai (Cty)", Phone = "0903000001", Street = "88 Cách Mạng Tháng 8", Ward = "Phường 7", District = "Quận 3", City = "TP. Hồ Chí Minh", IsDefault = false, CreatedAt = now };
-            var addr3 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000003"), UserId = cust2.Id, ReceiverName = "Hoàng Văn Nam", Phone = "0903000002", Street = "45 Lê Duẩn", Ward = "Phường Bến Nghé", District = "Quận 1", City = "TP. Hồ Chí Minh", IsDefault = true, CreatedAt = now };
-            var addr4 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000004"), UserId = cust3.Id, ReceiverName = "Đỗ Thanh Hà", Phone = "0903000003", Street = "99 Phạm Văn Đồng", Ward = "Phường Hiệp Bình Chánh", District = "TP. Thủ Đức", City = "TP. Hồ Chí Minh", IsDefault = true, CreatedAt = now };
-            var addr5 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000005"), UserId = cust4.Id, ReceiverName = "Vũ Quốc Bảo", Phone = "0903000004", Street = "22 Hai Bà Trưng", Ward = "Phường Tân Định", District = "Quận 1", City = "TP. Hồ Chí Minh", IsDefault = true, CreatedAt = now };
-            var addr6 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000006"), UserId = cust5.Id, ReceiverName = "Ngô Minh Tú", Phone = "0903000005", Street = "55 Võ Văn Tần", Ward = "Phường 6", District = "Quận 3", City = "TP. Hồ Chí Minh", IsDefault = true, CreatedAt = now };
+            var addr1 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000001"), UserId = cust1.Id, ReceiverName = "Phạm Thị Mai", Phone = "0903000001", Street = "12 Nguyễn Trãi", Ward = "Phường Bến Thành", District = "Quận 1", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 1, WardCode = "1", IsDefault = true, CreatedAt = now };
+            var addr2 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000002"), UserId = cust1.Id, ReceiverName = "Phạm Thị Mai (Cty)", Phone = "0903000001", Street = "88 Cách Mạng Tháng 8", Ward = "Phường 7", District = "Quận 3", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 3, WardCode = "45", IsDefault = false, CreatedAt = now };
+            var addr3 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000003"), UserId = cust2.Id, ReceiverName = "Hoàng Văn Nam", Phone = "0903000002", Street = "45 Lê Duẩn", Ward = "Phường Bến Nghé", District = "Quận 1", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 1, WardCode = "2", IsDefault = true, CreatedAt = now };
+            var addr4 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000004"), UserId = cust3.Id, ReceiverName = "Đỗ Thanh Hà", Phone = "0903000003", Street = "99 Phạm Văn Đồng", Ward = "Phường Hiệp Bình Chánh", District = "TP. Thủ Đức", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 16, WardCode = "220", IsDefault = true, CreatedAt = now };
+            var addr5 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000005"), UserId = cust4.Id, ReceiverName = "Vũ Quốc Bảo", Phone = "0903000004", Street = "22 Hai Bà Trưng", Ward = "Phường Tân Định", District = "Quận 1", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 1, WardCode = "4", IsDefault = true, CreatedAt = now };
+            var addr6 = new Address { Id = Guid.Parse("ad000000-0000-0000-0000-000000000006"), UserId = cust5.Id, ReceiverName = "Ngô Minh Tú", Phone = "0903000005", Street = "55 Võ Văn Tần", Ward = "Phường 6", District = "Quận 3", City = "TP. Hồ Chí Minh", ProvinceId = 1, DistrictId = 3, WardCode = "44", IsDefault = true, CreatedAt = now };
 
             db.Addresses.AddRange(addr1, addr2, addr3, addr4, addr5, addr6);
 
@@ -252,7 +255,7 @@ namespace Infrastructure
             Console.WriteLine("[Seed] Reviews: 11 | WishlistItems: 10");
             Console.WriteLine("[Seed] WalletTransactions: 9 | ShopStaff: 2 | Reports: 3");
             Console.WriteLine("[Seed] ─────────────────────────────────────");
-            Console.WriteLine("[Seed] All passwords: 123456");
+            Console.WriteLine($"[Seed] All passwords: (configured in SeedData:DefaultPassword)");
         }
     }
 }

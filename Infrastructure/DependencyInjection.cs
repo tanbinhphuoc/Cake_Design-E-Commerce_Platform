@@ -44,6 +44,9 @@ namespace Infrastructure
             services.AddScoped<IVnPayService, VnPayService>();
             services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 
+            // Register Viettel Post Service with HttpClient
+            services.AddHttpClient<IViettelPostService, ViettelPostService>();
+
             return services;
         }
     }

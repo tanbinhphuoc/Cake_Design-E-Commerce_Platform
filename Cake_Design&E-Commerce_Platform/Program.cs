@@ -62,8 +62,11 @@ namespace Cake_Design_E_Commerce_Platform
                 });
             });
 
-            // JWT Authentication
-            var jwtSecretKey = "YourSuperSecretKeyHereAtLeast32CharsLong!!!";
+            // JWT Authentication - read from configuration (use dotnet user-secrets)
+            var jwtSecretKey = builder.Configuration["Jwt:SecretKey"] 
+                ?? throw new InvalidOperationException("Jwt:SecretKey not configured. Run: dotnet user-secrets set \"Jwt:SecretKey\" \"YourSuperSecretKeyHereAtLeast32CharsLong!!!\"");
+            var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "CakeDesignPlatform";
+            var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "CakeDesignPlatformUsers";
             var key = Encoding.UTF8.GetBytes(jwtSecretKey);
 
             builder.Services.AddAuthentication(options =>
@@ -80,9 +83,9 @@ namespace Cake_Design_E_Commerce_Platform
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(key),
                     ValidateIssuer = true,
-                    ValidIssuer = "CakeDesignPlatform",
+                    ValidIssuer = jwtIssuer,
                     ValidateAudience = true,
-                    ValidAudience = "CakeDesignPlatformUsers",
+                    ValidAudience = jwtAudience,
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.Zero
                 };

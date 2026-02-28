@@ -32,6 +32,7 @@ namespace Application.Services
         Task<OrderDetailDto?> GetOrderByIdAsync(Guid userId, Guid orderId);
         Task<string> CancelOrderAsync(Guid userId, Guid orderId);
         Task<string> ConfirmReceivedAsync(Guid userId, Guid orderId);
+        Task<string> RequestRefundAsync(Guid userId, Guid orderId, CreateRefundRequestDto dto);
 
         // Shop owner
         Task<List<object>> GetShopOrdersAsync(Guid shopId);
@@ -44,5 +45,10 @@ namespace Application.Services
         // VNPay
         Task<VnPayIpnResult> ProcessVnPayIpnAsync(Dictionary<string, string> vnpayData);
         Task<VnPayReturnResult> ProcessVnPayReturnAsync(Dictionary<string, string> vnpayData);
+
+        // Refund management (SystemStaff/Admin)
+        Task<List<RefundRequestDto>> GetPendingRefundsAsync();
+        Task<RefundRequestDto?> GetRefundByIdAsync(Guid refundId);
+        Task<string> ResolveRefundAsync(Guid staffId, Guid refundId, ResolveRefundDto dto);
     }
 }
