@@ -1,3 +1,4 @@
+using Application.DTOs;
 using Application.Services;
 using Domain.Entities;
 using Microsoft.Extensions.Configuration;
@@ -11,40 +12,47 @@ namespace Infrastructure.Services
     public class JwtTokenGenerator : IJwtTokenGenerator
     {
         private readonly string _secretKey;
+        private readonly int _expirationMinutes;
         private readonly string _issuer;
         private readonly string _audience;
-        private readonly int _expirationMinutes;
 
-        public JwtTokenGenerator(IConfiguration configuration)
+        public JwtTokenGenerator(IConfiguration config)
         {
-            _secretKey = configuration["Jwt:SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey not configured. Use 'dotnet user-secrets set \"Jwt:SecretKey\" \"YourKeyHere\"'");
-            _issuer = configuration["Jwt:Issuer"] ?? "CakeDesignPlatform";
-            _audience = configuration["Jwt:Audience"] ?? "CakeDesignPlatformUsers";
-            _expirationMinutes = int.TryParse(configuration["Jwt:ExpirationMinutes"], out var mins) ? mins : 60;
+            _secretKey = config["Jwt:SecretKey"] ?? "YourSuperSecretKeyHereAtLeast32CharsLong!!!";
+            _expirationMinutes = int.TryParse(config["Jwt:ExpirationMinutes"], out var m) ? m : 60;
+            _issuer = config["Jwt:Issuer"] ?? "CakeDesignPlatform";
+            _audience = config["Jwt:Audience"] ?? "CakeDesignPlatformUsers";
         }
 
-        public string GenerateToken(Account user)
+        public JwtTokenResult GenerateToken(Account user)
         {
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secretKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var jti = Guid.NewGuid().ToString();
+            var expires = DateTime.UtcNow.AddMinutes(_expirationMinutes);
 
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Name, user.Username),
                 new Claim(ClaimTypes.Role, user.Role),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(JwtRegisteredClaimNames.Jti, jti)
             };
 
             var token = new JwtSecurityToken(
                 issuer: _issuer,
                 audience: _audience,
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(_expirationMinutes),
+                expires: expires,
                 signingCredentials: credentials
             );
 
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            return new JwtTokenResult
+            {
+                Token = new JwtSecurityTokenHandler().WriteToken(token),
+                Jti = jti,
+                ExpiresAtUtc = expires
+            };
         }
     }
 }
