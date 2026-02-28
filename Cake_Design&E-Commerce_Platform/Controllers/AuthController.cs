@@ -1,5 +1,9 @@
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Application.DTOs;
 using Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Cake_Design_E_Commerce_Platform.Controllers
@@ -9,27 +13,26 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        public AuthController(IAuthService authService) => _authService = authService;
 
-        public AuthController(IAuthService authService)
+        [HttpPost("request-otp")]
+        public async Task<IActionResult> RequestOtp([FromBody] RequestEmailOtpDto dto)
         {
-            _authService = authService;
+
+            await _authService.RequestEmailOtpAsync(dto);
+            return Ok(new { Message = "OTP sent" });
         }
 
-        /// <summary>
-        /// Register a new user account.
-        /// </summary>
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-            {
                 return BadRequest(new { Message = "Username and Password are required." });
-            }
 
             try
             {
                 var result = await _authService.RegisterAsync(dto);
-                return Ok(result);
+                return StatusCode(StatusCodes.Status201Created);
             }
             catch (InvalidOperationException ex)
             {
@@ -37,16 +40,11 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             }
         }
 
-        /// <summary>
-        /// Login with username and password. Returns JWT token.
-        /// </summary>
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-            {
                 return BadRequest(new { Message = "Username and Password are required." });
-            }
 
             try
             {
@@ -57,6 +55,39 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             {
                 return Unauthorized(new { Message = ex.Message });
             }
+        }
+
+        [HttpPost("google")]
+        public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginDto dto)
+        {
+            try
+            {
+                var result = await _authService.LoginWithGoogleAsync(dto);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { Message = ex.Message });
+            }
+        }
+
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequestDto dto)
+        {
+            try { return Ok(await _authService.RefreshAsync(dto)); }
+            catch (UnauthorizedAccessException ex) { return Unauthorized(new { Message = ex.Message }); }
+        }
+
+        [HttpPost("logout"), Authorize]
+        public async Task<IActionResult> Logout()
+        {
+            var userIdClaim = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                return Unauthorized();
+
+            await _authService.LogoutAsync(userId, jti);
+            return Ok(new { Message = "Logged out" });
         }
     }
 }

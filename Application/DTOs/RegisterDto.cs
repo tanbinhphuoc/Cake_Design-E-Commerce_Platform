@@ -24,7 +24,10 @@ namespace Application.DTOs
 
         [Required(ErrorMessage = "Phone is required.")]
         [Phone(ErrorMessage = "Invalid phone number format.")]
-        [MaxLength(20)]
+        [MinLength(10, ErrorMessage = "Phone number must be at 10 digit.")]
+        [MaxLength(10)]
         public string Phone { get; set; } = string.Empty;
+        public string Otp { get; set; } = string.Empty; 
+
     }
 }
