@@ -70,6 +70,17 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (ArgumentException ex) { return BadRequest(new { ex.Message }); }
         }
 
+        /// <summary>
+        /// Tạo tài khoản mới (Shipper, SystemStaff, Staff, v.v.)
+        /// </summary>
+        [HttpPost("accounts"), Authorize(Roles = "Admin")]
+        public async Task<IActionResult> CreateAccount([FromBody] AdminCreateAccountDto dto)
+        {
+            try { return StatusCode(StatusCodes.Status201Created, await _adminService.CreateAccountAsync(dto)); }
+            catch (ArgumentException ex) { return BadRequest(new { ex.Message }); }
+            catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
+        }
+
         // === Commission Management ===
 
         /// <summary>

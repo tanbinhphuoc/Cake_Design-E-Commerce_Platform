@@ -143,5 +143,42 @@ namespace Application.Services
             await _uow.SaveChangesAsync();
             return $"Commission rate for '{shop.ShopName}' set to {commissionRate}%.";
         }
+
+        // === Account Management ===
+
+        public async Task<object> CreateAccountAsync(AdminCreateAccountDto dto)
+        {
+            var validRoles = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff", "Shipper" };
+            if (!validRoles.Contains(dto.Role))
+                throw new ArgumentException($"Invalid role '{dto.Role}'. Valid roles: {string.Join(", ", validRoles)}");
+
+            var existingUsername = await _uow.Accounts.FindAsync(a => a.Username == dto.Username);
+            if (existingUsername.Any())
+                throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+
+            var existingEmail = await _uow.Accounts.FindAsync(a => a.Email == dto.Email);
+            if (existingEmail.Any())
+                throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+
+            var account = new Account
+            {
+                Id = Guid.NewGuid(),
+                Username = dto.Username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                FullName = dto.FullName,
+                Email = dto.Email,
+                Phone = dto.Phone,
+                Role = dto.Role,
+                IsApproved = true,
+                WalletBalance = 0,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _uow.Accounts.AddAsync(account);
+            await _uow.SaveChangesAsync();
+
+            return new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.CreatedAt };
+        }
     }
 }

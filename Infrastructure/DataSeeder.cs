@@ -45,7 +45,10 @@ namespace Infrastructure
             var sysStaff1 = new Account { Id = Guid.Parse("f0000000-0000-0000-0000-000000000001"), Username = "systemstaff1", PasswordHash = pw, FullName = "Nguyễn Hệ Thống", Email = "sysstaff1@cakedesign.com", Phone = "0905000001", Role = "SystemStaff", IsApproved = true, WalletBalance = 0, CreatedAt = now, UpdatedAt = now };
             var sysStaff2 = new Account { Id = Guid.Parse("f0000000-0000-0000-0000-000000000002"), Username = "systemstaff2", PasswordHash = pw, FullName = "Trần Quản Lý", Email = "sysstaff2@cakedesign.com", Phone = "0905000002", Role = "SystemStaff", IsApproved = true, WalletBalance = 0, CreatedAt = now, UpdatedAt = now };
 
-            var accounts = new[] { admin1, admin2, shopOwner1, shopOwner2, shopOwner3, cust1, cust2, cust3, cust4, cust5, staff1, staff2, sysStaff1, sysStaff2 };
+            var shipper1 = new Account { Id = Guid.Parse("e1000000-0000-0000-0000-000000000001"), Username = "shipper1", PasswordHash = pw, FullName = "Trần Văn Ship", Email = "shipper1@cakedesign.com", Phone = "0906000001", Role = "Shipper", IsApproved = true, WalletBalance = 0, CreatedAt = now, UpdatedAt = now };
+            var shipper2 = new Account { Id = Guid.Parse("e1000000-0000-0000-0000-000000000002"), Username = "shipper2", PasswordHash = pw, FullName = "Lê Thị Giao", Email = "shipper2@cakedesign.com", Phone = "0906000002", Role = "Shipper", IsApproved = true, WalletBalance = 0, CreatedAt = now, UpdatedAt = now };
+
+            var accounts = new[] { admin1, admin2, shopOwner1, shopOwner2, shopOwner3, cust1, cust2, cust3, cust4, cust5, staff1, staff2, sysStaff1, sysStaff2, shipper1, shipper2 };
             db.Accounts.AddRange(accounts);
 
             // ========== SHOPS ==========
@@ -247,7 +250,7 @@ namespace Infrastructure
             await db.SaveChangesAsync();
 
             Console.WriteLine("[Seed] ✅ Mock data seeded successfully!");
-            Console.WriteLine("[Seed] Accounts: 14 (2 Admin, 3 ShopOwner, 5 Customer, 2 Staff, 2 SystemStaff)");
+            Console.WriteLine("[Seed] Accounts: 16 (2 Admin, 3 ShopOwner, 5 Customer, 2 Staff, 2 SystemStaff, 2 Shipper)");
             Console.WriteLine("[Seed] Shops: 3 | Categories: 6 | Tags: 7");
             Console.WriteLine("[Seed] Products: 12 | ProductTags: 15");
             Console.WriteLine("[Seed] Addresses: 6 | Carts: 5 | CartItems: 7");

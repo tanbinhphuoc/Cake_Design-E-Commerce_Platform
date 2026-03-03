@@ -17,5 +17,8 @@ namespace Application.Services
 
         // Commission
         Task<string> SetShopCommissionAsync(Guid shopId, decimal commissionRate);
+
+        // Account Management
+        Task<object> CreateAccountAsync(AdminCreateAccountDto dto);
     }
 }
