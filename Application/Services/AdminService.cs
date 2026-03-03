@@ -129,5 +129,19 @@ namespace Application.Services
                 t.CreatedAt
             }).ToList();
         }
+
+        // === Commission ===
+
+        public async Task<string> SetShopCommissionAsync(Guid shopId, decimal commissionRate)
+        {
+            var shop = await _uow.Shops.GetByIdAsync(shopId);
+            if (shop == null) throw new ArgumentException("Shop not found.");
+            if (commissionRate < 0 || commissionRate > 100)
+                throw new ArgumentException("Commission rate must be between 0 and 100.");
+            shop.CommissionRate = commissionRate;
+            shop.UpdatedAt = DateTime.UtcNow;
+            await _uow.SaveChangesAsync();
+            return $"Commission rate for '{shop.ShopName}' set to {commissionRate}%.";
+        }
     }
 }

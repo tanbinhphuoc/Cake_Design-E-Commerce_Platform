@@ -32,6 +32,10 @@ namespace Infrastructure
         // Refund
         public IRefundRequestRepository RefundRequests { get; }
 
+        // Coupon
+        public ICouponRepository Coupons { get; }
+        public ICouponUsageRepository CouponUsages { get; }
+
         public UnitOfWork(AppDbContext context)
         {
             _context = context;
@@ -59,6 +63,10 @@ namespace Infrastructure
 
             // Refund
             RefundRequests = new RefundRequestRepository(context);
+
+            // Coupon
+            Coupons = new CouponRepository(context);
+            CouponUsages = new CouponUsageRepository(context);
         }
 
         public async Task<int> SaveChangesAsync()

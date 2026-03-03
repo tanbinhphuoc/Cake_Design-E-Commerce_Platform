@@ -34,6 +34,10 @@ namespace Infrastructure
         // Refund
         public DbSet<RefundRequest> RefundRequests { get; set; } = null!;
 
+        // Coupon
+        public DbSet<Coupon> Coupons { get; set; } = null!;
+        public DbSet<CouponUsage> CouponUsages { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -185,6 +189,16 @@ namespace Infrastructure
                       .WithMany()
                       .HasForeignKey(o => o.ShipperId)
                       .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(o => o.ShopCoupon)
+                      .WithMany()
+                      .HasForeignKey(o => o.ShopCouponId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(o => o.SystemCoupon)
+                      .WithMany()
+                      .HasForeignKey(o => o.SystemCouponId)
+                      .OnDelete(DeleteBehavior.SetNull);
             });
 
             // ===== OrderItem =====
@@ -246,6 +260,38 @@ namespace Infrastructure
                       .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasIndex(r => r.Status);
+            });
+
+            // ===== Coupon =====
+            modelBuilder.Entity<Coupon>(entity =>
+            {
+                entity.HasIndex(c => c.Code).IsUnique();
+
+                entity.HasOne(c => c.Shop)
+                      .WithMany(s => s.Coupons)
+                      .HasForeignKey(c => c.ShopId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ===== CouponUsage =====
+            modelBuilder.Entity<CouponUsage>(entity =>
+            {
+                entity.HasOne(cu => cu.Coupon)
+                      .WithMany(c => c.Usages)
+                      .HasForeignKey(cu => cu.CouponId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(cu => cu.User)
+                      .WithMany()
+                      .HasForeignKey(cu => cu.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(cu => cu.Order)
+                      .WithMany()
+                      .HasForeignKey(cu => cu.OrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(cu => new { cu.CouponId, cu.UserId });
             });
 
             // Apply any configuration classes from assembly

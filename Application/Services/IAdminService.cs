@@ -14,5 +14,8 @@ namespace Application.Services
         // System Wallet
         Task<List<object>> GetSystemWalletsAsync();
         Task<List<object>> GetSystemWalletTransactionsAsync(string? walletType, int count = 50);
+
+        // Commission
+        Task<string> SetShopCommissionAsync(Guid shopId, decimal commissionRate);
     }
 }

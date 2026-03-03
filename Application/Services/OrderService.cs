@@ -8,507 +8,497 @@ namespace Application.Services
     {
         private readonly IUnitOfWork _uow;
         private readonly IVnPayService _vnPay;
-        private readonly IViettelPostService _viettelPost;
-        
-        public OrderService(IUnitOfWork uow, IVnPayService vnPay, IViettelPostService viettelPost) 
-        { 
-            _uow = uow; 
-            _vnPay = vnPay; 
-            _viettelPost = viettelPost;
+        private readonly ICouponService _couponService;
+
+        public OrderService(IUnitOfWork uow, IVnPayService vnPay, ICouponService couponService)
+        {
+            _uow = uow;
+            _vnPay = vnPay;
+            _couponService = couponService;
         }
 
+        // =========================================================
+        //  CREATE ORDER (Customer)
+        // =========================================================
         public async Task<CreateOrderResult> CreateOrderAsync(Guid userId, CreateOrderDto dto, string ipAddress)
         {
-            // Validate payment method
-            var validMethods = new[] { "Wallet", "VNPay" };
-            if (!validMethods.Contains(dto.PaymentMethod))
-                throw new ArgumentException("Payment method must be 'Wallet' or 'VNPay'.");
-
             var account = await _uow.Accounts.GetByIdAsync(userId);
-            if (account == null) throw new UnauthorizedAccessException();
+            if (account == null) throw new UnauthorizedAccessException("User not found.");
+
             var cart = await _uow.Carts.GetCartWithItemsAndProductsAsync(userId);
-            if (cart == null || !cart.Items.Any()) throw new ArgumentException("Cart is empty.");
+            if (cart == null || !cart.Items.Any()) throw new InvalidOperationException("Cart is empty.");
 
-            // Filter by selected cart items if CartItemIds is provided
-            var selectedItems = cart.Items.ToList();
-            if (dto.CartItemIds != null && dto.CartItemIds.Any())
+            var cartItems = dto.CartItemIds != null && dto.CartItemIds.Any()
+                ? cart.Items.Where(ci => dto.CartItemIds.Contains(ci.Id)).ToList()
+                : cart.Items.ToList();
+            if (!cartItems.Any()) throw new InvalidOperationException("No matching items found in cart.");
+
+            var address = dto.ShippingAddressId.HasValue
+                ? await _uow.Addresses.GetByIdAsync(dto.ShippingAddressId.Value)
+                : account.DefaultAddressId.HasValue
+                    ? await _uow.Addresses.GetByIdAsync(account.DefaultAddressId.Value)
+                    : null;
+            if (address == null) throw new ArgumentException("Shipping address is required.");
+
+            var shopGroups = cartItems.GroupBy(ci => ci.Product.ShopId).ToList();
+            var result = new CreateOrderResult();
+            var allOrders = new List<Order>();
+
+            foreach (var group in shopGroups)
             {
-                selectedItems = selectedItems.Where(ci => dto.CartItemIds.Contains(ci.Id)).ToList();
-                if (!selectedItems.Any()) throw new ArgumentException("No matching items found in cart.");
-            }
+                var shopId = group.Key;
+                var shop = await _uow.Shops.GetByIdAsync(shopId);
+                if (shop == null) continue;
 
-            // Validate shipping address
-            if (dto.ShippingAddressId.HasValue)
-            {
-                var addr = await _uow.Addresses.FirstOrDefaultAsync(a => a.Id == dto.ShippingAddressId && a.UserId == userId);
-                if (addr == null) throw new ArgumentException("Shipping address not found.");
-            }
-
-            foreach (var item in selectedItems)
-                if (item.Product.Stock < item.Quantity)
-                    throw new ArgumentException($"Insufficient stock for '{item.Product.Name}'. Available: {item.Product.Stock}");
-
-            var totalAmount = selectedItems.Sum(ci => ci.Product.Price * ci.Quantity);
-            if (dto.PaymentMethod == "Wallet" && account.WalletBalance < totalAmount)
-                throw new InvalidOperationException($"Insufficient wallet balance. Required: {totalAmount:F2}, Available: {account.WalletBalance:F2}");
-
-            var createdOrders = new List<Order>();
-            var createdOrdersResult = new List<object>();
-            // Generate VnPayGroupId for linking multiple orders in one VNPay checkout
-            var vnPayGroupId = dto.PaymentMethod == "VNPay" ? Guid.NewGuid().ToString("N")[..16] : null;
-
-            foreach (var shopGroup in selectedItems.GroupBy(ci => ci.Product.ShopId))
-            {
-                var shop = await _uow.Shops.GetByIdAsync(shopGroup.Key);
-                decimal shippingFee = 0;
-                string? shippingProvider = null;
-
-                if (dto.ShippingAddressId.HasValue)
+                foreach (var item in group)
                 {
-                    var addr = await _uow.Addresses.FirstOrDefaultAsync(a => a.Id == dto.ShippingAddressId && a.UserId == userId);
-                    if (addr != null && shop != null)
-                    {
-                        try 
-                        {
-                            // A rough estimation of weight (e.g. 500g per item)
-                            int totalWeight = shopGroup.Sum(ci => ci.Quantity) * 500;
-                            var shopTotalAmount = shopGroup.Sum(ci => ci.Product.Price * ci.Quantity);
-                            // Only calculate fee if the IDs are provided correctly from the frontend
-                            if (shop.ProvinceId.HasValue && shop.DistrictId.HasValue && addr.ProvinceId.HasValue && addr.DistrictId.HasValue)
-                            {
-                                shippingFee = await _viettelPost.CalculateShippingFeeAsync(shop.ProvinceId.Value, shop.DistrictId.Value, addr.ProvinceId.Value, addr.DistrictId.Value, totalWeight, shopTotalAmount);
-                                shippingProvider = "ViettelPost";
-                            }
-                            else 
-                            {
-                                // fallback if IDs are missing
-                                shippingFee = 30000; 
-                                shippingProvider = "Fixed";
-                            }
-                        }
-                        catch
-                        {
-                            // fallback if API fails
-                            shippingFee = 30000; 
-                            shippingProvider = "External";
-                        }
-                    }
+                    if (item.Product.Stock < item.Quantity)
+                        throw new InvalidOperationException($"Not enough stock for '{item.Product.Name}'. Available: {item.Product.Stock}");
                 }
 
-                var shopTotal = shopGroup.Sum(ci => ci.Product.Price * ci.Quantity);
-                var orderTotal = shopTotal + shippingFee; // Include shipping fee in total amount
-                
+                var subtotal = group.Sum(ci => ci.Product.Price * ci.Quantity);
+
+                // Apply Shop Coupon
+                decimal shopDiscount = 0;
+                Guid? shopCouponId = null;
+                if (!string.IsNullOrWhiteSpace(dto.ShopCouponCode))
+                {
+                    var v = await _couponService.ValidateCouponAsync(dto.ShopCouponCode, userId, subtotal, shopId);
+                    if (v.IsValid && v.CouponType == "Shop") { shopDiscount = v.DiscountAmount; shopCouponId = v.CouponId; }
+                }
+
+                // Apply System Coupon
+                decimal systemDiscount = 0;
+                Guid? systemCouponId = null;
+                if (!string.IsNullOrWhiteSpace(dto.SystemCouponCode))
+                {
+                    var v = await _couponService.ValidateCouponAsync(dto.SystemCouponCode, userId, subtotal - shopDiscount, null);
+                    if (v.IsValid && v.CouponType == "System") { systemDiscount = v.DiscountAmount; systemCouponId = v.CouponId; }
+                }
+
+                var totalDiscount = shopDiscount + systemDiscount;
+                var shippingFee = 30000m;
+                var totalAmount = Math.Max(subtotal - totalDiscount + shippingFee, 0);
+
                 var order = new Order
                 {
-                    Id = Guid.NewGuid(), UserId = userId, ShopId = shopGroup.Key,
-                    ShippingAddressId = dto.ShippingAddressId, 
-                    ShippingFee = shippingFee,
-                    ShippingProvider = shippingProvider,
-                    TotalAmount = orderTotal, 
-                    Status = "Pending",
-                    Note = dto.Note, PaymentMethod = dto.PaymentMethod,
-                    PaymentStatus = dto.PaymentMethod == "Wallet" ? "Paid" : "Pending",
-                    VnPayGroupId = vnPayGroupId,
+                    Id = Guid.NewGuid(), UserId = userId, ShopId = shopId,
+                    ShippingAddressId = address.Id, Subtotal = subtotal,
+                    DiscountAmount = totalDiscount, TaxRate = 0, TaxAmount = 0,
+                    ShippingFee = shippingFee, TotalAmount = totalAmount,
+                    ShopCouponId = shopCouponId, SystemCouponId = systemCouponId,
+                    Status = "Pending", PaymentMethod = dto.PaymentMethod,
+                    PaymentStatus = "Pending", Note = dto.Note,
+                    ShippingProvider = "ViettelPost",
                     CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
                 };
-                foreach (var ci in shopGroup)
+
+                foreach (var ci in group)
                 {
-                    order.Items.Add(new OrderItem { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = ci.ProductId, Quantity = ci.Quantity, PriceAtPurchase = ci.Product.Price });
+                    order.Items.Add(new OrderItem
+                    {
+                        Id = Guid.NewGuid(), OrderId = order.Id,
+                        ProductId = ci.ProductId, Quantity = ci.Quantity,
+                        PriceAtPurchase = ci.Product.Price
+                    });
                     ci.Product.Stock -= ci.Quantity;
                 }
-                await _uow.Orders.AddAsync(order);
-                await _uow.Payments.AddAsync(new Payment { Id = Guid.NewGuid(), OrderId = order.Id, UserId = userId, Amount = orderTotal, Method = dto.PaymentMethod, Status = dto.PaymentMethod == "Wallet" ? "Completed" : "Pending", CreatedAt = DateTime.UtcNow, CompletedAt = dto.PaymentMethod == "Wallet" ? DateTime.UtcNow : null });
 
-                createdOrders.Add(order);
-                createdOrdersResult.Add(new { OrderId = order.Id, ShopId = shopGroup.Key, ItemsAmount = shopTotal, ShippingFee = shippingFee, TotalAmount = orderTotal, order.Status });
+                await _uow.Orders.AddAsync(order);
+                allOrders.Add(order);
+
+                if (shopCouponId.HasValue)
+                    await _couponService.RecordUsageAsync(shopCouponId.Value, userId, order.Id, shopDiscount);
+                if (systemCouponId.HasValue)
+                    await _couponService.RecordUsageAsync(systemCouponId.Value, userId, order.Id, systemDiscount);
+
+                foreach (var ci in group) _uow.CartItems.Remove(ci);
             }
 
-            // Adjust the total amount to deduct from wallet by calculating new grand total
-            totalAmount = createdOrders.Sum(o => o.TotalAmount);
-            if (dto.PaymentMethod == "Wallet" && account.WalletBalance < totalAmount)
-                throw new InvalidOperationException($"Insufficient wallet balance including shipping fees. Required: {totalAmount:F2}, Available: {account.WalletBalance:F2}");
+            var grandTotal = allOrders.Sum(o => o.TotalAmount);
 
             if (dto.PaymentMethod == "Wallet")
             {
-                account.WalletBalance -= totalAmount;
-                await _uow.WalletTransactions.AddAsync(new WalletTransaction { Id = Guid.NewGuid(), WalletOwnerId = account.Id, WalletType = "User", Amount = -totalAmount, TransactionType = "Purchase", Description = "Order purchase", BalanceAfter = account.WalletBalance, CreatedAt = DateTime.UtcNow });
-                
-                // Hold payment in System Escrow for each order
-                foreach (var order in createdOrders)
-                {
-                    await HoldInEscrowAsync(order.TotalAmount, order.Id, userId, $"Hold payment for order {order.Id}");
-                }
-            }
-            // Only remove purchased items from cart (not all items)
-            _uow.CartItems.RemoveRange(selectedItems);
-            await _uow.SaveChangesAsync();
+                if (account.WalletBalance < grandTotal)
+                    throw new InvalidOperationException($"Insufficient wallet balance. Required: {grandTotal:N0}, Available: {account.WalletBalance:N0}");
 
-            var result = new CreateOrderResult { Orders = createdOrdersResult, TotalAmount = totalAmount };
-            if (dto.PaymentMethod == "VNPay")
+                account.WalletBalance -= grandTotal;
+                await _uow.WalletTransactions.AddAsync(new WalletTransaction
+                {
+                    Id = Guid.NewGuid(), WalletOwnerId = account.Id, WalletType = "User",
+                    Amount = -grandTotal, TransactionType = "Purchase",
+                    Description = $"Order payment ({allOrders.Count} orders)",
+                    BalanceAfter = account.WalletBalance, CreatedAt = DateTime.UtcNow
+                });
+
+                var escrow = await GetOrCreateSystemWallet("Escrow");
+                escrow.Balance += grandTotal;
+                await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                {
+                    Id = Guid.NewGuid(), WalletType = "Escrow", Amount = grandTotal,
+                    TransactionType = "OrderPayment",
+                    Description = $"Escrow received for {allOrders.Count} orders",
+                    BalanceAfter = escrow.Balance,
+                    OrderId = allOrders.First().Id, RelatedUserId = userId,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                var totalSysDiscount = allOrders.Where(o => o.SystemCouponId != null).Sum(o => o.DiscountAmount);
+                if (totalSysDiscount > 0)
+                {
+                    var revenue = await GetOrCreateSystemWallet("Revenue");
+                    revenue.Balance -= totalSysDiscount;
+                    await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                    {
+                        Id = Guid.NewGuid(), WalletType = "Revenue", Amount = -totalSysDiscount,
+                        TransactionType = "SystemCouponDiscount",
+                        Description = "System coupon discount",
+                        BalanceAfter = revenue.Balance, RelatedUserId = userId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
+                foreach (var o in allOrders)
+                {
+                    o.PaymentStatus = "Paid";
+                    await _uow.Payments.AddAsync(new Payment
+                    {
+                        Id = Guid.NewGuid(), OrderId = o.Id, UserId = userId,
+                        Amount = o.TotalAmount, Method = "Wallet", Status = "Completed",
+                        CreatedAt = DateTime.UtcNow, CompletedAt = DateTime.UtcNow
+                    });
+                }
+                result.RemainingBalance = account.WalletBalance;
+            }
+            else if (dto.PaymentMethod == "VNPay")
             {
-                var orderInfo = $"Thanh toan don hang {vnPayGroupId}";
-                // Use vnPayGroupId as vnp_TxnRef so we can find all orders on callback
-                result.PaymentUrl = _vnPay.CreatePaymentUrl(vnPayGroupId!, totalAmount, orderInfo, ipAddress);
+                var vnpayGroupId = Guid.NewGuid().ToString("N")[..16];
+                foreach (var o in allOrders)
+                {
+                    o.VnPayGroupId = vnpayGroupId;
+                    await _uow.Payments.AddAsync(new Payment
+                    {
+                        Id = Guid.NewGuid(), OrderId = o.Id, UserId = userId,
+                        Amount = o.TotalAmount, Method = "VNPay", Status = "Pending",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                result.PaymentUrl = _vnPay.CreatePaymentUrl(
+                    vnpayGroupId, grandTotal,
+                    $"Payment for {allOrders.Count} orders", ipAddress
+                );
                 result.RequiresPaymentRedirect = true;
             }
-            else { result.RemainingBalance = account.WalletBalance; }
+
+            result.TotalAmount = grandTotal;
+            result.Orders = allOrders.Select(o => (object)new
+            {
+                OrderId = o.Id, o.ShopId, o.Subtotal, o.DiscountAmount, o.ShippingFee, o.TotalAmount
+            }).ToList();
+
+            await _uow.SaveChangesAsync();
             return result;
         }
 
+        // =========================================================
+        //  GET ORDERS (Customer)
+        // =========================================================
         public async Task<List<OrderDetailDto>> GetOrdersAsync(Guid userId)
         {
             var orders = await _uow.Orders.GetOrdersByUserIdAsync(userId);
-            return orders.Select(o => MapOrderDetail(o)).ToList();
+            return orders.Select(MapOrderDetail).ToList();
         }
 
         public async Task<OrderDetailDto?> GetOrderByIdAsync(Guid userId, Guid orderId)
         {
-            var order = await _uow.Orders.GetByIdWithDetailsAsync(orderId);
+            var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
             if (order == null || order.UserId != userId) return null;
             return MapOrderDetail(order);
         }
 
+        // =========================================================
+        //  CANCEL ORDER (Customer, before shop confirms)
+        // =========================================================
         public async Task<string> CancelOrderAsync(Guid userId, Guid orderId)
         {
             var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
             if (order == null || order.UserId != userId) throw new ArgumentException("Order not found.");
-            if (order.Status != "Pending") throw new InvalidOperationException("Can only cancel pending orders.");
-            order.Status = "Cancelled"; order.UpdatedAt = DateTime.UtcNow;
-            foreach (var item in order.Items) item.Product.Stock += item.Quantity;
-            if (order.PaymentStatus == "Paid")
-                await ProcessRefundAsync(order);
-            await _uow.SaveChangesAsync();
-            return "Order cancelled successfully.";
-        }
+            if (order.Status != "Pending") throw new InvalidOperationException("Can only cancel orders with 'Pending' status.");
 
-        public async Task<string> ConfirmReceivedAsync(Guid userId, Guid orderId)
-        {
-            var order = await _uow.Orders.FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
-            if (order == null) throw new ArgumentException("Order not found.");
-            if (order.Status != "Delivered") throw new InvalidOperationException("Can only confirm received for delivered orders.");
-            order.Status = "Completed"; order.UpdatedAt = DateTime.UtcNow;
+            order.Status = "Cancelled";
+            order.UpdatedAt = DateTime.UtcNow;
+
+            foreach (var item in order.Items) item.Product.Stock += item.Quantity;
+            await _couponService.ReverseUsageAsync(orderId);
+
             if (order.PaymentStatus == "Paid")
             {
-                await CreditShopOwnerAsync(order.ShopId, order.TotalAmount, order.Id, "Sale", $"Sale from completed order {order.Id}");
+                var escrow = await GetOrCreateSystemWallet("Escrow");
+                escrow.Balance -= order.TotalAmount;
+                await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                {
+                    Id = Guid.NewGuid(), WalletType = "Escrow", Amount = -order.TotalAmount,
+                    TransactionType = "CancelRefund",
+                    Description = $"Refund for cancelled order {order.Id}",
+                    BalanceAfter = escrow.Balance, OrderId = order.Id, RelatedUserId = userId,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                var customer = await _uow.Accounts.GetByIdAsync(userId);
+                if (customer != null)
+                {
+                    customer.WalletBalance += order.TotalAmount;
+                    await _uow.WalletTransactions.AddAsync(new WalletTransaction
+                    {
+                        Id = Guid.NewGuid(), WalletOwnerId = customer.Id, WalletType = "User",
+                        Amount = order.TotalAmount, TransactionType = "Refund",
+                        Description = $"Refund for cancelled order {order.Id}",
+                        BalanceAfter = customer.WalletBalance, ReferenceId = order.Id,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                order.PaymentStatus = "Refunded";
+                var payment = await _uow.Payments.FirstOrDefaultAsync(p => p.OrderId == orderId);
+                if (payment != null) { payment.Status = "Refunded"; payment.CompletedAt = DateTime.UtcNow; }
             }
+
+            await _uow.SaveChangesAsync();
+            return order.PaymentStatus == "Refunded"
+                ? "Order cancelled. Payment has been refunded to your wallet."
+                : "Order cancelled successfully.";
+        }
+
+        // =========================================================
+        //  CONFIRM RECEIVED (Customer)
+        // =========================================================
+        public async Task<string> ConfirmReceivedAsync(Guid userId, Guid orderId)
+        {
+            var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
+            if (order == null || order.UserId != userId) throw new ArgumentException("Order not found.");
+            if (order.Status != "Delivered") throw new InvalidOperationException("Order must be 'Delivered' to confirm.");
+            order.Status = "Completed";
+            order.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync();
             return "Order confirmed as received.";
         }
 
+        // =========================================================
+        //  REQUEST REFUND (Customer)
+        // =========================================================
+        public async Task<string> RequestRefundAsync(Guid userId, Guid orderId, CreateRefundRequestDto dto)
+        {
+            var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
+            if (order == null || order.UserId != userId) throw new ArgumentException("Order not found.");
+            if (order.Status != "Delivered" && order.Status != "Completed")
+                throw new InvalidOperationException("Can only request refund for delivered/completed orders.");
+            if (string.IsNullOrWhiteSpace(dto.Reason)) throw new ArgumentException("Reason is required.");
+
+            var existing = await _uow.RefundRequests.FirstOrDefaultAsync(r => r.OrderId == orderId);
+            if (existing != null) throw new InvalidOperationException("A refund request already exists for this order.");
+
+            await _uow.RefundRequests.AddAsync(new RefundRequest
+            {
+                Id = Guid.NewGuid(), OrderId = orderId, CustomerId = userId,
+                Reason = dto.Reason, Description = dto.Description ?? "",
+                EvidenceUrls = dto.EvidenceUrls ?? "", Status = "Pending",
+                CreatedAt = DateTime.UtcNow
+            });
+            await _uow.SaveChangesAsync();
+            return "Refund request submitted. Waiting for system staff review.";
+        }
+
+        // =========================================================
+        //  SHOP OWNER
+        // =========================================================
         public async Task<List<object>> GetShopOrdersAsync(Guid shopId)
         {
-            var orders = await _uow.Orders.GetOrdersByShopIdAsync(shopId);
-            return orders.Select(o => (object)new
+            var orders = await _uow.Orders.FindAsync(o => o.ShopId == shopId);
+            return orders.OrderByDescending(o => o.CreatedAt).Select(o => (object)new
             {
-                o.Id, o.UserId, CustomerName = o.User.FullName != "" ? o.User.FullName : o.User.Username,
-                o.TotalAmount, o.Status, o.PaymentMethod, o.PaymentStatus, o.Note,
-                ShippingAddress = MapAddress(o.ShippingAddress),
-                Items = o.Items.Select(oi => MapOrderItem(oi)).ToList(), o.CreatedAt
+                o.Id, o.UserId, CustomerName = o.User?.FullName ?? o.User?.Username ?? "",
+                o.Subtotal, o.DiscountAmount, o.ShippingFee, o.TotalAmount,
+                o.Status, o.PaymentMethod, o.PaymentStatus, o.CreatedAt
             }).ToList();
         }
 
         public async Task<object?> GetShopOrderByIdAsync(Guid shopId, Guid orderId)
         {
-            var o = await _uow.Orders.GetByIdWithDetailsAsync(orderId);
-            if (o == null || o.ShopId != shopId) return null;
-            return new { o.Id, o.UserId, CustomerName = o.User.FullName != "" ? o.User.FullName : o.User.Username, ItemsAmount = o.TotalAmount - o.ShippingFee, o.ShippingFee, o.TotalAmount, o.ShippingProvider, o.Status, o.PaymentMethod, o.PaymentStatus, o.Note, ShippingAddress = MapAddress(o.ShippingAddress), Items = o.Items.Select(oi => MapOrderItem(oi)).ToList(), o.CreatedAt };
+            var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
+            if (order == null || order.ShopId != shopId) return null;
+            return MapOrderDetail(order);
         }
 
         public async Task<string> UpdateOrderStatusAsync(Guid shopId, Guid orderId, UpdateOrderStatusDto dto)
         {
             var order = await _uow.Orders.GetByIdWithItemsAsync(orderId);
             if (order == null || order.ShopId != shopId) throw new ArgumentException("Order not found.");
-            var transitions = new Dictionary<string, string[]> 
-            { 
-                { "Pending", new[] { "Confirmed", "Cancelled" } }, 
-                { "Confirmed", new[] { "ReadyForPickup", "Cancelled" } }
-            };
-            if (!transitions.ContainsKey(order.Status) || !transitions[order.Status].Contains(dto.Status))
-                throw new InvalidOperationException($"Invalid status transition from '{order.Status}' to '{dto.Status}'.");
-            order.Status = dto.Status; order.UpdatedAt = DateTime.UtcNow;
-            if (dto.Status == "Cancelled")
+
+            var valid = new Dictionary<string, string[]>
             {
-                foreach (var item in order.Items) item.Product.Stock += item.Quantity;
-                if (order.PaymentStatus == "Paid") await ProcessRefundAsync(order);
+                { "Pending", new[] { "Confirmed", "Cancelled" } },
+                { "Confirmed", new[] { "Shipping" } },
+                { "Shipping", new[] { "Delivered" } }
+            };
+            if (!valid.ContainsKey(order.Status) || !valid[order.Status].Contains(dto.Status))
+                throw new InvalidOperationException($"Cannot change status from '{order.Status}' to '{dto.Status}'.");
+
+            order.Status = dto.Status;
+            order.UpdatedAt = DateTime.UtcNow;
+
+            // ESCROW RELEASE when Delivered
+            if (dto.Status == "Delivered" && order.PaymentStatus == "Paid")
+            {
+                var shop = await _uow.Shops.GetByIdAsync(shopId);
+                if (shop != null)
+                {
+                    var commission = Math.Round(order.TotalAmount * shop.CommissionRate / 100m, 0);
+                    var shopPayout = order.TotalAmount - commission;
+
+                    var escrow = await GetOrCreateSystemWallet("Escrow");
+                    escrow.Balance -= order.TotalAmount;
+                    await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                    {
+                        Id = Guid.NewGuid(), WalletType = "Escrow", Amount = -order.TotalAmount,
+                        TransactionType = "EscrowRelease",
+                        Description = $"Released for delivered order {order.Id}",
+                        BalanceAfter = escrow.Balance, OrderId = order.Id, RelatedUserId = shop.OwnerId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+
+                    var shopOwner = await _uow.Accounts.GetByIdAsync(shop.OwnerId);
+                    if (shopOwner != null)
+                    {
+                        shopOwner.WalletBalance += shopPayout;
+                        await _uow.WalletTransactions.AddAsync(new WalletTransaction
+                        {
+                            Id = Guid.NewGuid(), WalletOwnerId = shopOwner.Id, WalletType = "User",
+                            Amount = shopPayout, TransactionType = "Sale",
+                            Description = $"Payment for order {order.Id} (after {shop.CommissionRate}% commission)",
+                            BalanceAfter = shopOwner.WalletBalance, ReferenceId = order.Id,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+
+                    var commWallet = await GetOrCreateSystemWallet("Commission");
+                    commWallet.Balance += commission;
+                    await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                    {
+                        Id = Guid.NewGuid(), WalletType = "Commission", Amount = commission,
+                        TransactionType = "CommissionCollected",
+                        Description = $"{shop.CommissionRate}% commission from order {order.Id}",
+                        BalanceAfter = commWallet.Balance, OrderId = order.Id, RelatedUserId = shop.OwnerId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
             }
+
             await _uow.SaveChangesAsync();
             return $"Order status updated to '{dto.Status}'.";
         }
 
+        // =========================================================
+        //  ADMIN
+        // =========================================================
         public async Task<List<object>> GetAllOrdersAsync()
         {
-            var all = await _uow.Orders.GetAllAsync();
-            var result = new List<object>();
-            foreach (var o in all.OrderByDescending(o => o.CreatedAt))
+            var orders = await _uow.Orders.GetAllAsync();
+            return orders.OrderByDescending(o => o.CreatedAt).Select(o => (object)new
             {
-                var full = await _uow.Orders.GetByIdWithDetailsAsync(o.Id);
-                if (full == null) continue;
-                result.Add(new { full.Id, full.UserId, CustomerName = full.User.Username, full.ShopId, ShopName = full.Shop.ShopName, full.TotalAmount, full.Status, full.PaymentMethod, full.PaymentStatus, full.CreatedAt });
-            }
-            return result;
+                o.Id, o.UserId, o.ShopId, o.Subtotal, o.DiscountAmount,
+                o.ShippingFee, o.TotalAmount, o.Status, o.PaymentMethod,
+                o.PaymentStatus, o.CreatedAt
+            }).ToList();
         }
 
+        // =========================================================
+        //  VNPAY
+        // =========================================================
         public async Task<VnPayIpnResult> ProcessVnPayIpnAsync(Dictionary<string, string> vnpayData)
         {
-            if (!_vnPay.ValidateCallback(vnpayData)) return new VnPayIpnResult { RspCode = "97", Message = "Invalid signature" };
-            var responseCode = _vnPay.GetResponseCode(vnpayData);
-            var txnRef = vnpayData.ContainsKey("vnp_TxnRef") ? vnpayData["vnp_TxnRef"] : "";
-            if (string.IsNullOrEmpty(txnRef)) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
+            if (!_vnPay.ValidateCallback(vnpayData))
+                return new VnPayIpnResult { RspCode = "97", Message = "Invalid signature" };
 
-            // Find all orders by VnPayGroupId
-            var orders = await _uow.Orders.GetByVnPayGroupIdAsync(txnRef);
+            var vnpayGroupId = vnpayData.GetValueOrDefault("vnp_TxnRef", "");
+            var responseCode = vnpayData.GetValueOrDefault("vnp_ResponseCode", "");
+            var txnRef = vnpayData.GetValueOrDefault("vnp_TransactionNo", "");
+
+            var orders = (await _uow.Orders.FindAsync(o => o.VnPayGroupId == vnpayGroupId)).ToList();
             if (!orders.Any()) return new VnPayIpnResult { RspCode = "01", Message = "Order not found" };
-            if (orders.All(o => o.PaymentStatus == "Paid")) return new VnPayIpnResult { RspCode = "02", Message = "Already confirmed" };
+            if (orders.Any(o => o.PaymentStatus == "Paid"))
+                return new VnPayIpnResult { RspCode = "02", Message = "Already processed" };
 
-            var transactionNo = vnpayData.ContainsKey("vnp_TransactionNo") ? vnpayData["vnp_TransactionNo"] : null;
-            await UpdateVnPayOrdersStatusAsync(orders, responseCode, transactionNo);
+            if (responseCode == "00")
+            {
+                var grandTotal = orders.Sum(o => o.TotalAmount);
+                var escrow = await GetOrCreateSystemWallet("Escrow");
+                escrow.Balance += grandTotal;
+                await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
+                {
+                    Id = Guid.NewGuid(), WalletType = "Escrow", Amount = grandTotal,
+                    TransactionType = "VnPayPayment",
+                    Description = $"VNPay payment for group {vnpayGroupId}",
+                    BalanceAfter = escrow.Balance,
+                    OrderId = orders.First().Id, RelatedUserId = orders.First().UserId,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                foreach (var o in orders)
+                {
+                    o.PaymentStatus = "Paid"; o.UpdatedAt = DateTime.UtcNow;
+                    var p = await _uow.Payments.FirstOrDefaultAsync(p => p.OrderId == o.Id);
+                    if (p != null) { p.Status = "Completed"; p.TransactionRef = txnRef; p.CompletedAt = DateTime.UtcNow; }
+                }
+            }
+            else
+            {
+                foreach (var o in orders)
+                {
+                    o.PaymentStatus = "Failed"; o.Status = "Cancelled"; o.UpdatedAt = DateTime.UtcNow;
+                    var full = await _uow.Orders.GetByIdWithItemsAsync(o.Id);
+                    if (full != null) foreach (var item in full.Items) item.Product.Stock += item.Quantity;
+                    await _couponService.ReverseUsageAsync(o.Id);
+                    var p = await _uow.Payments.FirstOrDefaultAsync(p => p.OrderId == o.Id);
+                    if (p != null) { p.Status = "Failed"; p.CompletedAt = DateTime.UtcNow; }
+                }
+            }
+
             await _uow.SaveChangesAsync();
             return new VnPayIpnResult { RspCode = "00", Message = "Confirm Success" };
         }
 
         public async Task<VnPayReturnResult> ProcessVnPayReturnAsync(Dictionary<string, string> vnpayData)
         {
-            var isValid = _vnPay.ValidateCallback(vnpayData);
-            var responseCode = _vnPay.GetResponseCode(vnpayData);
-            var txnRef = vnpayData.ContainsKey("vnp_TxnRef") ? vnpayData["vnp_TxnRef"] : "";
-
-            if (isValid && !string.IsNullOrEmpty(txnRef))
+            var valid = _vnPay.ValidateCallback(vnpayData);
+            var code = vnpayData.GetValueOrDefault("vnp_ResponseCode", "");
+            return new VnPayReturnResult
             {
-                // Update payment status for all orders in this VNPay group
-                var orders = await _uow.Orders.GetByVnPayGroupIdAsync(txnRef);
-                if (orders.Any() && orders.Any(o => o.PaymentStatus == "Pending"))
-                {
-                    var transactionNo = vnpayData.ContainsKey("vnp_TransactionNo") ? vnpayData["vnp_TransactionNo"] : null;
-                    await UpdateVnPayOrdersStatusAsync(orders, responseCode, transactionNo);
-                    await _uow.SaveChangesAsync();
-                }
-            }
-
-            return new VnPayReturnResult { Success = isValid && responseCode == "00", OrderId = txnRef, ResponseCode = responseCode, Message = responseCode == "00" ? "Payment successful" : "Payment failed or cancelled" };
-        }
-
-        /// <summary>
-        /// Update payment status for all orders linked by VnPayGroupId
-        /// </summary>
-        private async Task UpdateVnPayOrdersStatusAsync(List<Order> orders, string responseCode, string? transactionNo)
-        {
-            foreach (var order in orders)
-            {
-                if (order.PaymentStatus == "Paid") continue; // Skip already paid
-
-                if (responseCode == "00")
-                {
-                    order.PaymentStatus = "Paid"; order.UpdatedAt = DateTime.UtcNow;
-                    var payment = await _uow.Payments.GetByOrderIdAsync(order.Id);
-                    if (payment != null) { payment.Status = "Completed"; payment.CompletedAt = DateTime.UtcNow; payment.TransactionRef = transactionNo; }
-                    
-                    // Hold VNPay payment in System Escrow
-                    await HoldInEscrowAsync(order.TotalAmount, order.Id, order.UserId, $"VNPay payment held for order {order.Id}");
-                }
-                else
-                {
-                    order.PaymentStatus = "Failed"; order.Status = "Cancelled"; order.UpdatedAt = DateTime.UtcNow;
-                    foreach (var item in order.Items) item.Product.Stock += item.Quantity;
-                    var payment = await _uow.Payments.GetByOrderIdAsync(order.Id);
-                    if (payment != null) payment.Status = "Failed";
-                }
-            }
-        }
-
-        // === System Wallet Helpers ===
-
-        /// <summary>
-        /// Gi? ti?n trong Escrow khi thanh toán thành công
-        /// </summary>
-        private async Task HoldInEscrowAsync(decimal amount, Guid orderId, Guid customerId, string description)
-        {
-            var escrowWallet = await _uow.SystemWallets.GetByTypeAsync("Escrow");
-            if (escrowWallet == null)
-            {
-                escrowWallet = new SystemWallet 
-                { 
-                    WalletType = "Escrow", 
-                    Balance = 0,
-                    Description = "Ví gi? ti?n t?m th?i cho ??n hàng ch?a hoàn thành"
-                };
-                await _uow.SystemWallets.AddAsync(escrowWallet);
-            }
-
-            escrowWallet.Balance += amount;
-            escrowWallet.UpdatedAt = DateTime.UtcNow;
-
-            await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
-            {
-                WalletType = "Escrow",
-                Amount = amount,
-                TransactionType = "HoldFromCustomer",
-                BalanceAfter = escrowWallet.Balance,
-                OrderId = orderId,
-                RelatedUserId = customerId,
-                Description = description
-            });
-        }
-
-        /// <summary>
-        /// Gi?i phóng ti?n t? Escrow sang Shop Owner khi ??n hàng hoàn thành
-        /// </summary>
-        private async Task ReleaseFromEscrowAsync(decimal amount, Guid orderId, Guid shopOwnerId, string description)
-        {
-            var escrowWallet = await _uow.SystemWallets.GetByTypeAsync("Escrow");
-            if (escrowWallet != null && escrowWallet.Balance >= amount)
-            {
-                escrowWallet.Balance -= amount;
-                escrowWallet.UpdatedAt = DateTime.UtcNow;
-
-                await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
-                {
-                    WalletType = "Escrow",
-                    Amount = -amount,
-                    TransactionType = "ReleaseToShop",
-                    BalanceAfter = escrowWallet.Balance,
-                    OrderId = orderId,
-                    RelatedUserId = shopOwnerId,
-                    Description = description
-                });
-            }
-        }
-
-        /// <summary>
-        /// Hoàn ti?n t? Escrow v? Customer khi h?y ??n
-        /// </summary>
-        private async Task RefundFromEscrowAsync(decimal amount, Guid orderId, Guid customerId, string description)
-        {
-            var escrowWallet = await _uow.SystemWallets.GetByTypeAsync("Escrow");
-            if (escrowWallet != null && escrowWallet.Balance >= amount)
-            {
-                escrowWallet.Balance -= amount;
-                escrowWallet.UpdatedAt = DateTime.UtcNow;
-
-                await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
-                {
-                    WalletType = "Escrow",
-                    Amount = -amount,
-                    TransactionType = "RefundToCustomer",
-                    BalanceAfter = escrowWallet.Balance,
-                    OrderId = orderId,
-                    RelatedUserId = customerId,
-                    Description = description
-                });
-            }
-        }
-
-        // === Existing Helpers ===
-
-        /// <summary>
-        /// Credit sale amount to shop owner's Account.WalletBalance (unified wallet)
-        /// </summary>
-        private async Task CreditShopOwnerAsync(Guid shopId, decimal amount, Guid orderId, string txnType, string description)
-        {
-            var shop = await _uow.Shops.GetByIdAsync(shopId);
-            if (shop == null) return;
-            var shopOwner = await _uow.Accounts.GetByIdAsync(shop.OwnerId);
-            if (shopOwner == null) return;
-
-            // Release from Escrow first
-            await ReleaseFromEscrowAsync(amount, orderId, shopOwner.Id, $"Released to shop owner for order {orderId}");
-
-            shopOwner.WalletBalance += amount;
-            await _uow.WalletTransactions.AddAsync(new WalletTransaction
-            {
-                Id = Guid.NewGuid(), WalletOwnerId = shopOwner.Id, WalletType = "Shop",
-                Amount = amount, TransactionType = txnType, Description = description,
-                BalanceAfter = shopOwner.WalletBalance, ReferenceId = orderId,
-                CreatedAt = DateTime.UtcNow
-            });
-        }
-
-        /// <summary>
-        /// Process refund: credit customer's wallet, debit shop owner's wallet
-        /// </summary>
-        private async Task ProcessRefundAsync(Order order)
-        {
-            // Refund from Escrow first
-            await RefundFromEscrowAsync(order.TotalAmount, order.Id, order.UserId, $"Refund for cancelled order {order.Id}");
-
-            // Refund customer wallet (for Wallet payments)
-            if (order.PaymentMethod == "Wallet")
-            {
-                var customer = await _uow.Accounts.GetByIdAsync(order.UserId);
-                if (customer != null)
-                {
-                    customer.WalletBalance += order.TotalAmount;
-                    await _uow.WalletTransactions.AddAsync(new WalletTransaction { Id = Guid.NewGuid(), WalletOwnerId = customer.Id, WalletType = "User", Amount = order.TotalAmount, TransactionType = "Refund", Description = $"Refund for order {order.Id}", BalanceAfter = customer.WalletBalance, ReferenceId = order.Id, CreatedAt = DateTime.UtcNow });
-                }
-            }
-            // Note: VNPay refunds would need to be handled separately (manual process or VNPay refund API)
-            order.PaymentStatus = "Refunded";
-        }
-
-        private static OrderDetailDto MapOrderDetail(Order o) => new()
-        {
-            Id = o.Id, UserId = o.UserId, ShopId = o.ShopId, ShopName = o.Shop.ShopName, 
-            ShipperId = o.ShipperId,
-            ShipperName = o.Shipper != null ? (o.Shipper.FullName != "" ? o.Shipper.FullName : o.Shipper.Username) : null,
-            ItemsAmount = o.TotalAmount - o.ShippingFee,
-            ShippingFee = o.ShippingFee,
-            TotalAmount = o.TotalAmount,
-            ShippingProvider = o.ShippingProvider,
-            Status = o.Status, PaymentMethod = o.PaymentMethod, PaymentStatus = o.PaymentStatus, Note = o.Note,
-            ShippingAddress = MapAddress(o.ShippingAddress),
-            Items = o.Items.Select(oi => MapOrderItem(oi)).ToList(), CreatedAt = o.CreatedAt
-        };
-        private static AddressDto? MapAddress(Address? a) => a == null ? null : new AddressDto { Id = a.Id, ReceiverName = a.ReceiverName, Phone = a.Phone, Street = a.Street, Ward = a.Ward, District = a.District, City = a.City, IsDefault = a.IsDefault };
-        private static OrderItemDto MapOrderItem(OrderItem oi) => new() { ProductId = oi.ProductId, ProductName = oi.Product.Name, ProductImageUrl = oi.Product.ImageUrl, Quantity = oi.Quantity, PriceAtPurchase = oi.PriceAtPurchase };
-
-        // === Refund Request ===
-
-        public async Task<string> RequestRefundAsync(Guid userId, Guid orderId, CreateRefundRequestDto dto)
-        {
-            var order = await _uow.Orders.FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
-            if (order == null) throw new ArgumentException("Order not found.");
-            if (order.Status != "Delivered") throw new InvalidOperationException("Can only request refund for delivered orders.");
-            if (order.PaymentStatus != "Paid") throw new InvalidOperationException("Order has not been paid.");
-
-            var existing = await _uow.RefundRequests.GetByOrderIdAsync(orderId);
-            if (existing != null) throw new InvalidOperationException("A refund request already exists for this order.");
-
-            if (string.IsNullOrWhiteSpace(dto.Reason)) throw new ArgumentException("Reason is required.");
-
-            var refund = new RefundRequest
-            {
-                OrderId = orderId,
-                CustomerId = userId,
-                Reason = dto.Reason,
-                Description = dto.Description,
-                EvidenceUrls = dto.EvidenceUrls,
-                Status = "Pending"
+                Success = valid && code == "00",
+                OrderId = vnpayData.GetValueOrDefault("vnp_TxnRef", ""),
+                ResponseCode = code,
+                Message = valid && code == "00" ? "Payment successful" : "Payment failed"
             };
-            await _uow.RefundRequests.AddAsync(refund);
-
-            order.Status = "RefundRequested";
-            order.UpdatedAt = DateTime.UtcNow;
-            await _uow.SaveChangesAsync();
-            return "Refund request submitted. Waiting for system staff review.";
         }
 
+        // =========================================================
+        //  REFUND MANAGEMENT (SystemStaff/Admin)
+        // =========================================================
         public async Task<List<RefundRequestDto>> GetPendingRefundsAsync()
         {
             var refunds = await _uow.RefundRequests.GetPendingAsync();
-            return refunds.Select(r => MapRefundRequest(r)).ToList();
+            return refunds.Select(MapRefundRequest).ToList();
         }
 
         public async Task<RefundRequestDto?> GetRefundByIdAsync(Guid refundId)
         {
             var r = await _uow.RefundRequests.GetByIdWithDetailsAsync(refundId);
-            if (r == null) return null;
-            return MapRefundRequest(r);
+            return r == null ? null : MapRefundRequest(r);
         }
 
         public async Task<string> ResolveRefundAsync(Guid staffId, Guid refundId, ResolveRefundDto dto)
         {
             var refund = await _uow.RefundRequests.GetByIdWithDetailsAsync(refundId);
             if (refund == null) throw new ArgumentException("Refund request not found.");
-            if (refund.Status != "Pending") throw new InvalidOperationException("Refund request has already been resolved.");
+            if (refund.Status != "Pending") throw new InvalidOperationException("Refund already resolved.");
 
             var order = await _uow.Orders.GetByIdWithItemsAsync(refund.OrderId);
             if (order == null) throw new ArgumentException("Order not found.");
@@ -521,54 +511,106 @@ namespace Application.Services
             {
                 refund.Status = "Approved";
                 order.Status = "Returned";
+                order.PaymentStatus = "Refunded";
                 order.UpdatedAt = DateTime.UtcNow;
 
-                // Refund from Escrow to customer
-                await RefundFromEscrowAsync(order.TotalAmount, order.Id, order.UserId, $"Refund approved for order {order.Id}");
-
-                if (order.PaymentMethod == "Wallet")
+                var shop = await _uow.Shops.GetByIdAsync(order.ShopId);
+                if (shop != null)
                 {
-                    var customer = await _uow.Accounts.GetByIdAsync(order.UserId);
-                    if (customer != null)
+                    var shopOwner = await _uow.Accounts.GetByIdAsync(shop.OwnerId);
+                    if (shopOwner != null)
                     {
-                        customer.WalletBalance += order.TotalAmount;
-                        await _uow.WalletTransactions.AddAsync(new WalletTransaction { Id = Guid.NewGuid(), WalletOwnerId = customer.Id, WalletType = "User", Amount = order.TotalAmount, TransactionType = "Refund", Description = $"Refund approved for order {order.Id}", BalanceAfter = customer.WalletBalance, ReferenceId = order.Id, CreatedAt = DateTime.UtcNow });
+                        shopOwner.WalletBalance -= order.TotalAmount;
+                        await _uow.WalletTransactions.AddAsync(new WalletTransaction
+                        {
+                            Id = Guid.NewGuid(), WalletOwnerId = shopOwner.Id, WalletType = "User",
+                            Amount = -order.TotalAmount, TransactionType = "RefundDeduction",
+                            Description = $"Refund deduction for order {order.Id}",
+                            BalanceAfter = shopOwner.WalletBalance, ReferenceId = order.Id,
+                            CreatedAt = DateTime.UtcNow
+                        });
                     }
                 }
-                order.PaymentStatus = "Refunded";
 
-                // Restore stock
+                var customer = await _uow.Accounts.GetByIdAsync(order.UserId);
+                if (customer != null)
+                {
+                    customer.WalletBalance += order.TotalAmount;
+                    await _uow.WalletTransactions.AddAsync(new WalletTransaction
+                    {
+                        Id = Guid.NewGuid(), WalletOwnerId = customer.Id, WalletType = "User",
+                        Amount = order.TotalAmount, TransactionType = "Refund",
+                        Description = $"Refund for order {order.Id}",
+                        BalanceAfter = customer.WalletBalance, ReferenceId = order.Id,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
                 foreach (var item in order.Items) item.Product.Stock += item.Quantity;
+                await _couponService.CreateCompensationCouponAsync(order.UserId, order.TotalAmount);
             }
             else
             {
                 refund.Status = "Rejected";
-                order.Status = "Completed";
                 order.UpdatedAt = DateTime.UtcNow;
-
-                // Refund rejected ? release Escrow to shop
-                await CreditShopOwnerAsync(order.ShopId, order.TotalAmount, order.Id, "Sale", $"Refund rejected, payment released for order {order.Id}");
             }
 
             await _uow.SaveChangesAsync();
-            return dto.Approved ? "Refund approved. Customer has been refunded." : "Refund rejected. Payment released to shop owner.";
+            return dto.Approved
+                ? "Refund approved. Customer refunded and received a compensation coupon."
+                : "Refund rejected.";
         }
+
+        // =========================================================
+        //  HELPERS
+        // =========================================================
+        private async Task<SystemWallet> GetOrCreateSystemWallet(string walletType)
+        {
+            var w = await _uow.SystemWallets.FirstOrDefaultAsync(w => w.WalletType == walletType);
+            if (w == null)
+            {
+                w = new SystemWallet { Id = Guid.NewGuid(), WalletType = walletType, Balance = 0, CreatedAt = DateTime.UtcNow };
+                await _uow.SystemWallets.AddAsync(w);
+            }
+            return w;
+        }
+
+        private static OrderDetailDto MapOrderDetail(Order o) => new()
+        {
+            Id = o.Id, UserId = o.UserId, ShopId = o.ShopId,
+            ShopName = o.Shop?.ShopName ?? "",
+            ShipperId = o.ShipperId, ShipperName = o.Shipper?.FullName ?? o.Shipper?.Username,
+            Subtotal = o.Subtotal, DiscountAmount = o.DiscountAmount,
+            TaxAmount = o.TaxAmount, ShippingFee = o.ShippingFee, TotalAmount = o.TotalAmount,
+            ShopCouponCode = o.ShopCoupon?.Code, SystemCouponCode = o.SystemCoupon?.Code,
+            ShippingProvider = o.ShippingProvider,
+            Status = o.Status, PaymentMethod = o.PaymentMethod,
+            PaymentStatus = o.PaymentStatus, Note = o.Note,
+            ShippingAddress = o.ShippingAddress != null ? new AddressDto
+            {
+                Id = o.ShippingAddress.Id, ReceiverName = o.ShippingAddress.ReceiverName,
+                Phone = o.ShippingAddress.Phone, Street = o.ShippingAddress.Street,
+                Ward = o.ShippingAddress.Ward, District = o.ShippingAddress.District,
+                City = o.ShippingAddress.City
+            } : null,
+            Items = o.Items.Select(oi => new OrderItemDto
+            {
+                ProductId = oi.ProductId, ProductName = oi.Product?.Name ?? "",
+                ProductImageUrl = oi.Product?.ImageUrl ?? "",
+                Quantity = oi.Quantity, PriceAtPurchase = oi.PriceAtPurchase
+            }).ToList(),
+            CreatedAt = o.CreatedAt
+        };
 
         private static RefundRequestDto MapRefundRequest(RefundRequest r) => new()
         {
-            Id = r.Id,
-            OrderId = r.OrderId,
-            CustomerId = r.CustomerId,
-            CustomerName = r.Customer.FullName != "" ? r.Customer.FullName : r.Customer.Username,
-            OrderAmount = r.Order.TotalAmount,
-            Reason = r.Reason,
-            Description = r.Description,
-            EvidenceUrls = r.EvidenceUrls,
-            Status = r.Status,
-            StaffNote = r.StaffNote,
-            ResolvedBy = r.ResolvedBy,
-            CreatedAt = r.CreatedAt,
-            ResolvedAt = r.ResolvedAt
+            Id = r.Id, OrderId = r.OrderId, CustomerId = r.CustomerId,
+            CustomerName = r.Customer?.FullName ?? r.Customer?.Username ?? "",
+            OrderAmount = r.Order?.TotalAmount ?? 0,
+            Reason = r.Reason, Description = r.Description,
+            EvidenceUrls = r.EvidenceUrls, Status = r.Status,
+            StaffNote = r.StaffNote, ResolvedBy = r.ResolvedBy,
+            CreatedAt = r.CreatedAt, ResolvedAt = r.ResolvedAt
         };
     }
 }

@@ -20,10 +20,23 @@ namespace Domain.Entities
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalAmount { get; set; }
+        public decimal Subtotal { get; set; } // Tổng tiền hàng trước giảm giá
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountAmount { get; set; } = 0; // Tổng giảm giá (shop + system coupon)
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TaxRate { get; set; } = 0; // Dự phòng thuế (mặc định 0)
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TaxAmount { get; set; } = 0; // Dự phòng thuế (mặc định 0)
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal ShippingFee { get; set; } = 0;
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TotalAmount { get; set; } // = Subtotal - DiscountAmount + TaxAmount + ShippingFee
 
         [MaxLength(200)]
         public string? ShippingProvider { get; set; }
@@ -45,6 +58,9 @@ namespace Domain.Entities
         [MaxLength(50)]
         public string? VnPayGroupId { get; set; } // Links multiple orders from the same VNPay checkout
 
+        public Guid? ShopCouponId { get; set; }
+        public Guid? SystemCouponId { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -60,6 +76,12 @@ namespace Domain.Entities
 
         [ForeignKey(nameof(ShipperId))]
         public virtual Account? Shipper { get; set; }
+
+        [ForeignKey(nameof(ShopCouponId))]
+        public virtual Coupon? ShopCoupon { get; set; }
+
+        [ForeignKey(nameof(SystemCouponId))]
+        public virtual Coupon? SystemCoupon { get; set; }
 
         public virtual ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
         public virtual Payment? Payment { get; set; }
