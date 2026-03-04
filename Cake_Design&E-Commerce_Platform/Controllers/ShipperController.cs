@@ -6,6 +6,9 @@ using System.Security.Claims;
 
 namespace Cake_Design_E_Commerce_Platform.Controllers
 {
+    /// <summary>
+    /// Shipper - Quan ly giao hang
+    /// </summary>
     [ApiController]
     [Route("api/shipper")]
     [Authorize(Roles = "Shipper")]
@@ -15,46 +18,57 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         public ShipperController(IShipperService shipperService) { _shipperService = shipperService; }
 
         /// <summary>
-        /// L?y danh sách ??n hàng ch? shipper nh?n (ReadyForPickup)
+        /// Xem danh sach don hang cho shipper nhan (ReadyForPickup)
         /// </summary>
-        [HttpGet("orders/available")]
+        [HttpGet("available-orders")]
         public async Task<IActionResult> GetAvailableOrders()
         {
             return Ok(await _shipperService.GetAvailableOrdersAsync());
         }
 
         /// <summary>
-        /// L?y danh sách ??n hàng shipper ?ang giao
+        /// Xem danh sach don hang dang giao cua shipper
         /// </summary>
-        [HttpGet("orders/my")]
+        [HttpGet("my-orders")]
         public async Task<IActionResult> GetMyOrders()
         {
-            var shipperId = GetUserId(); if (shipperId == null) return Unauthorized();
-            return Ok(await _shipperService.GetMyOrdersAsync(shipperId.Value));
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            return Ok(await _shipperService.GetMyOrdersAsync(userId.Value));
         }
 
         /// <summary>
-        /// Shipper nh?n ??n hàng (ReadyForPickup ? Shipping)
+        /// Shipper nhan don hang de giao (ReadyForPickup -> Shipping)
         /// </summary>
         [HttpPost("orders/{orderId:guid}/pickup")]
         public async Task<IActionResult> PickupOrder(Guid orderId)
         {
-            var shipperId = GetUserId(); if (shipperId == null) return Unauthorized();
-            try { return Ok(new { Message = await _shipperService.PickupOrderAsync(shipperId.Value, orderId) }); }
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            try { return Ok(new { Message = await _shipperService.PickupOrderAsync(userId.Value, orderId) }); }
             catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
             catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
         }
 
         /// <summary>
-        /// Shipper xác nh?n ?ã giao hàng (Shipping ? Delivered)
+        /// Shipper xac nhan da giao hang (Shipping -> Delivered). Shipper nhan 50% phi ship.
         /// </summary>
         [HttpPost("orders/{orderId:guid}/deliver")]
         public async Task<IActionResult> DeliverOrder(Guid orderId)
         {
-            var shipperId = GetUserId(); if (shipperId == null) return Unauthorized();
-            try { return Ok(new { Message = await _shipperService.DeliverOrderAsync(shipperId.Value, orderId) }); }
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            try { return Ok(new { Message = await _shipperService.DeliverOrderAsync(userId.Value, orderId) }); }
             catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
             catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
+        }
+
+        /// <summary>
+        /// Xem thu nhap va lich su giao hang cua Shipper
+        /// </summary>
+        [HttpGet("earnings")]
+        public async Task<IActionResult> GetEarnings()
+        {
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            try { return Ok(await _shipperService.GetEarningsAsync(userId.Value)); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
         private Guid? GetUserId()

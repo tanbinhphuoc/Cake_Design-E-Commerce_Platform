@@ -17,7 +17,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         /// <summary>
         /// Get current user's wallet balance. If ShopOwner, this is also the shop wallet.
         /// </summary>
-        [HttpGet("wallet/me")]
+        [HttpGet("wallet/me"), Authorize(Roles = "Customer,ShopOwner,Shipper,Staff")]
         public async Task<IActionResult> GetMyWallet()
         {
             var userId = GetUserId(); if (userId == null) return Unauthorized();
@@ -39,7 +39,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         /// <summary>
         /// Deposit money into own wallet.
         /// </summary>
-        [HttpPost("wallet/deposit")]
+        [HttpPost("wallet/deposit"), Authorize(Roles = "Customer,ShopOwner,Shipper")]
         public async Task<IActionResult> Deposit([FromBody] DepositWalletDto dto)
         {
             var userId = GetUserId(); if (userId == null) return Unauthorized();
@@ -47,7 +47,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (ArgumentException ex) { return BadRequest(new { ex.Message }); }
         }
 
-        [HttpGet("wallet/transactions")]
+        [HttpGet("wallet/transactions"), Authorize(Roles = "Customer,ShopOwner,Shipper,Staff")]
         public async Task<IActionResult> GetWalletTransactions()
         {
             var userId = GetUserId(); if (userId == null) return Unauthorized();
@@ -62,7 +62,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
-        [HttpPost("payments/create")]
+        [HttpPost("payments/create"), Authorize(Roles = "Customer,ShopOwner")]
         public async Task<IActionResult> CreatePayment([FromBody] CreatePaymentDto dto)
         {
             var userId = GetUserId(); if (userId == null) return Unauthorized();

@@ -470,6 +470,13 @@ namespace Application.Services
         {
             var valid = _vnPay.ValidateCallback(vnpayData);
             var code = vnpayData.GetValueOrDefault("vnp_ResponseCode", "");
+
+            // Also process the payment (update DB) — fallback in case IPN didn't reach us
+            if (valid)
+            {
+                await ProcessVnPayIpnAsync(vnpayData);
+            }
+
             return new VnPayReturnResult
             {
                 Success = valid && code == "00",
