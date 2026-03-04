@@ -36,6 +36,9 @@ namespace Infrastructure
         public ICouponRepository Coupons { get; }
         public ICouponUsageRepository CouponUsages { get; }
 
+        // Shipper
+        public IShipperDeliveryRepository ShipperDeliveries { get; }
+
         public UnitOfWork(AppDbContext context)
         {
             _context = context;
@@ -67,6 +70,9 @@ namespace Infrastructure
             // Coupon
             Coupons = new CouponRepository(context);
             CouponUsages = new CouponUsageRepository(context);
+
+            // Shipper
+            ShipperDeliveries = new ShipperDeliveryRepository(context);
         }
 
         public async Task<int> SaveChangesAsync()

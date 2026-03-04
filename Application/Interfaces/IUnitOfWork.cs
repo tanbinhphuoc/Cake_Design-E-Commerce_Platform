@@ -31,6 +31,9 @@ namespace Application.Interfaces
         ICouponRepository Coupons { get; }
         ICouponUsageRepository CouponUsages { get; }
 
+        // Shipper
+        IShipperDeliveryRepository ShipperDeliveries { get; }
+
         Task<int> SaveChangesAsync();
     }
 }

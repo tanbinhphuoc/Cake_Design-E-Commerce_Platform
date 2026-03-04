@@ -127,6 +127,22 @@ namespace Application.Services
                         BalanceAfter = commWallet.Balance, OrderId = order.Id, RelatedUserId = shop.OwnerId,
                         CreatedAt = DateTime.UtcNow
                     });
+
+                    // 6. Save delivery record to ShipperDeliveries table
+                    await _uow.ShipperDeliveries.AddAsync(new ShipperDelivery
+                    {
+                        Id = Guid.NewGuid(),
+                        OrderId = order.Id,
+                        ShipperId = shipperId,
+                        ShippingFee = order.ShippingFee,
+                        EarnedAmount = shipperPayout,
+                        SystemCut = systemShippingCut,
+                        ShopPayout = shopPayout,
+                        Commission = commission,
+                        Status = "Completed",
+                        DeliveredAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
                 }
             }
 
@@ -139,34 +155,28 @@ namespace Application.Services
             var account = await _uow.Accounts.GetByIdAsync(shipperId);
             if (account == null) throw new ArgumentException("Shipper not found.");
 
-            // Get all shipping earning transactions
-            var allTxns = await _uow.WalletTransactions.GetByOwnerAsync(shipperId, "User");
-            var earningTxns = allTxns.Where(t => t.TransactionType == "ShippingEarning").ToList();
+            // Query from dedicated ShipperDeliveries table
+            var deliveries = await _uow.ShipperDeliveries.FindAsync(d => d.ShipperId == shipperId);
+            var deliveryList = deliveries.OrderByDescending(d => d.DeliveredAt).ToList();
 
-            // Get delivered orders for details
-            var deliveredOrders = await _uow.Orders.FindAsync(o => o.ShipperId == shipperId && o.Status == "Delivered");
             var recentDeliveries = new List<ShipperDeliveryDto>();
-
-            foreach (var o in deliveredOrders.OrderByDescending(o => o.UpdatedAt).Take(50))
+            foreach (var d in deliveryList.Take(50))
             {
-                var full = await _uow.Orders.GetByIdWithDetailsAsync(o.Id);
-                if (full != null)
+                var order = await _uow.Orders.GetByIdWithDetailsAsync(d.OrderId);
+                recentDeliveries.Add(new ShipperDeliveryDto
                 {
-                    recentDeliveries.Add(new ShipperDeliveryDto
-                    {
-                        OrderId = full.Id,
-                        ShopName = full.Shop?.ShopName ?? "",
-                        ShippingFee = full.ShippingFee,
-                        EarnedAmount = Math.Round(full.ShippingFee * 0.50m, 0),
-                        DeliveredAt = full.UpdatedAt
-                    });
-                }
+                    OrderId = d.OrderId,
+                    ShopName = order?.Shop?.ShopName ?? "",
+                    ShippingFee = d.ShippingFee,
+                    EarnedAmount = d.EarnedAmount,
+                    DeliveredAt = d.DeliveredAt
+                });
             }
 
             return new ShipperEarningsDto
             {
-                TotalEarnings = earningTxns.Sum(t => t.Amount),
-                TotalDeliveries = earningTxns.Count,
+                TotalEarnings = deliveryList.Sum(d => d.EarnedAmount),
+                TotalDeliveries = deliveryList.Count,
                 WalletBalance = account.WalletBalance,
                 RecentDeliveries = recentDeliveries
             };
