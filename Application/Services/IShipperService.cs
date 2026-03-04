@@ -8,5 +8,6 @@ namespace Application.Services
         Task<List<ShipperOrderDto>> GetMyOrdersAsync(Guid shipperId);
         Task<string> PickupOrderAsync(Guid shipperId, Guid orderId);
         Task<string> DeliverOrderAsync(Guid shipperId, Guid orderId);
+        Task<ShipperEarningsDto> GetEarningsAsync(Guid shipperId);
     }
 }

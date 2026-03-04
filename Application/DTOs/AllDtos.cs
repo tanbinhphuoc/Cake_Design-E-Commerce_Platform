@@ -285,6 +285,23 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
     }
 
+    public class ShipperEarningsDto
+    {
+        public decimal TotalEarnings { get; set; }
+        public int TotalDeliveries { get; set; }
+        public decimal WalletBalance { get; set; }
+        public List<ShipperDeliveryDto> RecentDeliveries { get; set; } = new();
+    }
+
+    public class ShipperDeliveryDto
+    {
+        public Guid OrderId { get; set; }
+        public string ShopName { get; set; } = string.Empty;
+        public decimal ShippingFee { get; set; }
+        public decimal EarnedAmount { get; set; }
+        public DateTime DeliveredAt { get; set; }
+    }
+
     // ===== Refund =====
     public class CreateRefundRequestDto
     {
