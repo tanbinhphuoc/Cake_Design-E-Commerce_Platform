@@ -336,61 +336,13 @@ namespace Application.Services
             var valid = new Dictionary<string, string[]>
             {
                 { "Pending", new[] { "Confirmed", "Cancelled" } },
-                { "Confirmed", new[] { "Shipping" } },
-                { "Shipping", new[] { "Delivered" } }
+                { "Confirmed", new[] { "ReadyForPickup", "Cancelled" } }
             };
             if (!valid.ContainsKey(order.Status) || !valid[order.Status].Contains(dto.Status))
                 throw new InvalidOperationException($"Cannot change status from '{order.Status}' to '{dto.Status}'.");
 
             order.Status = dto.Status;
             order.UpdatedAt = DateTime.UtcNow;
-
-            // ESCROW RELEASE when Delivered
-            if (dto.Status == "Delivered" && order.PaymentStatus == "Paid")
-            {
-                var shop = await _uow.Shops.GetByIdAsync(shopId);
-                if (shop != null)
-                {
-                    var commission = Math.Round(order.TotalAmount * shop.CommissionRate / 100m, 0);
-                    var shopPayout = order.TotalAmount - commission;
-
-                    var escrow = await GetOrCreateSystemWallet("Escrow");
-                    escrow.Balance -= order.TotalAmount;
-                    await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
-                    {
-                        Id = Guid.NewGuid(), WalletType = "Escrow", Amount = -order.TotalAmount,
-                        TransactionType = "EscrowRelease",
-                        Description = $"Released for delivered order {order.Id}",
-                        BalanceAfter = escrow.Balance, OrderId = order.Id, RelatedUserId = shop.OwnerId,
-                        CreatedAt = DateTime.UtcNow
-                    });
-
-                    var shopOwner = await _uow.Accounts.GetByIdAsync(shop.OwnerId);
-                    if (shopOwner != null)
-                    {
-                        shopOwner.WalletBalance += shopPayout;
-                        await _uow.WalletTransactions.AddAsync(new WalletTransaction
-                        {
-                            Id = Guid.NewGuid(), WalletOwnerId = shopOwner.Id, WalletType = "User",
-                            Amount = shopPayout, TransactionType = "Sale",
-                            Description = $"Payment for order {order.Id} (after {shop.CommissionRate}% commission)",
-                            BalanceAfter = shopOwner.WalletBalance, ReferenceId = order.Id,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-
-                    var commWallet = await GetOrCreateSystemWallet("Commission");
-                    commWallet.Balance += commission;
-                    await _uow.SystemWalletTransactions.AddAsync(new SystemWalletTransaction
-                    {
-                        Id = Guid.NewGuid(), WalletType = "Commission", Amount = commission,
-                        TransactionType = "CommissionCollected",
-                        Description = $"{shop.CommissionRate}% commission from order {order.Id}",
-                        BalanceAfter = commWallet.Balance, OrderId = order.Id, RelatedUserId = shop.OwnerId,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
-            }
 
             await _uow.SaveChangesAsync();
             return $"Order status updated to '{dto.Status}'.";

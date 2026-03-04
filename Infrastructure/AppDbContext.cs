@@ -38,6 +38,9 @@ namespace Infrastructure
         public DbSet<Coupon> Coupons { get; set; } = null!;
         public DbSet<CouponUsage> CouponUsages { get; set; } = null!;
 
+        // Shipper
+        public DbSet<ShipperDelivery> ShipperDeliveries { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -292,6 +295,24 @@ namespace Infrastructure
                       .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasIndex(cu => new { cu.CouponId, cu.UserId });
+            });
+
+            // ===== ShipperDelivery =====
+            modelBuilder.Entity<ShipperDelivery>(entity =>
+            {
+                entity.HasOne(d => d.Order)
+                      .WithMany()
+                      .HasForeignKey(d => d.OrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.Shipper)
+                      .WithMany()
+                      .HasForeignKey(d => d.ShipperId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(d => d.ShipperId);
+                entity.HasIndex(d => d.OrderId).IsUnique();
+                entity.HasIndex(d => d.DeliveredAt);
             });
 
             // Apply any configuration classes from assembly
