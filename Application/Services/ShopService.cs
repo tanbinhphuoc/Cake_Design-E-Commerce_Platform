@@ -36,7 +36,6 @@ namespace Application.Services
                 Description = dto.Description ?? "", AvatarUrl = dto.AvatarUrl ?? "",
                 BannerUrl = dto.BannerUrl ?? "", Address = dto.Address,
                 Phone = dto.Phone, IsActive = false,
-                WalletBalance = 0, // Shop wallet not used separately, owner's Account.WalletBalance is the wallet
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
             };
             await _uow.Shops.AddAsync(shop);

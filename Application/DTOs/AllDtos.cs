@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Application.DTOs
 {
     // ===== User Profile =====
@@ -223,6 +225,8 @@ namespace Application.DTOs
         public Guid? ShippingAddressId { get; set; }
         public string? Note { get; set; }
         public string PaymentMethod { get; set; } = "Wallet";
+        public string? ShopCouponCode { get; set; }
+        public string? SystemCouponCode { get; set; }
     }
 
     public class OrderDetailDto
@@ -233,9 +237,13 @@ namespace Application.DTOs
         public string ShopName { get; set; } = string.Empty;
         public Guid? ShipperId { get; set; }
         public string? ShipperName { get; set; }
-        public decimal ItemsAmount { get; set; }
+        public decimal Subtotal { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public decimal TaxAmount { get; set; }
         public decimal ShippingFee { get; set; }
         public decimal TotalAmount { get; set; }
+        public string? ShopCouponCode { get; set; }
+        public string? SystemCouponCode { get; set; }
         public string? ShippingProvider { get; set; }
         public string Status { get; set; } = string.Empty;
         public string PaymentMethod { get; set; } = string.Empty;
@@ -459,5 +467,95 @@ namespace Application.DTOs
         public string WardId { get; set; } = string.Empty;
         public string WardName { get; set; } = string.Empty;
         public int DistrictId { get; set; }
+    }
+
+    // ===== Coupon DTOs =====
+
+    public class CreateCouponDto
+    {
+        [Required, MaxLength(8)]
+        public string Code { get; set; } = string.Empty;
+
+        [Required]
+        public string DiscountType { get; set; } = "Fixed"; // "Fixed" | "Percentage"
+
+        [Required]
+        public decimal DiscountValue { get; set; }
+
+        public decimal? MaxDiscountAmount { get; set; }
+        public decimal MinOrderAmount { get; set; } = 0;
+        public int MaxUsageCount { get; set; } = 1;
+        public int? MaxUsagePerUser { get; set; } = 1;
+        public DateTime? ExpiresAt { get; set; }
+    }
+
+    public class UpdateCouponDto
+    {
+        public decimal? DiscountValue { get; set; }
+        public decimal? MaxDiscountAmount { get; set; }
+        public decimal? MinOrderAmount { get; set; }
+        public int? MaxUsageCount { get; set; }
+        public int? MaxUsagePerUser { get; set; }
+        public bool? IsActive { get; set; }
+        public DateTime? ExpiresAt { get; set; }
+    }
+
+    public class CouponDto
+    {
+        public Guid Id { get; set; }
+        public string Code { get; set; } = string.Empty;
+        public string CouponType { get; set; } = string.Empty;
+        public Guid? ShopId { get; set; }
+        public string DiscountType { get; set; } = string.Empty;
+        public decimal DiscountValue { get; set; }
+        public decimal? MaxDiscountAmount { get; set; }
+        public decimal MinOrderAmount { get; set; }
+        public int MaxUsageCount { get; set; }
+        public int UsedCount { get; set; }
+        public int? MaxUsagePerUser { get; set; }
+        public bool IsActive { get; set; }
+        public DateTime? ExpiresAt { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    // ===== Revenue Report DTOs =====
+
+    public class ShopRevenueDto
+    {
+        public Guid ShopId { get; set; }
+        public string ShopName { get; set; } = string.Empty;
+        public decimal TotalRevenue { get; set; }
+        public decimal TotalCommission { get; set; }
+        public decimal NetRevenue { get; set; } // TotalRevenue - TotalCommission
+        public int TotalOrders { get; set; }
+        public int CompletedOrders { get; set; }
+        public int CancelledOrders { get; set; }
+        public decimal TodayRevenue { get; set; }
+        public decimal WeekRevenue { get; set; }
+        public decimal MonthRevenue { get; set; }
+    }
+
+    public class SystemRevenueDto
+    {
+        public decimal TotalRevenue { get; set; }
+        public decimal TotalCommission { get; set; }
+        public decimal TotalDiscount { get; set; } // System coupon discounts
+        public decimal TotalRefunds { get; set; }
+        public int TotalOrders { get; set; }
+        public int CompletedOrders { get; set; }
+        public int PendingOrders { get; set; }
+        public int CancelledOrders { get; set; }
+        public decimal TodayRevenue { get; set; }
+        public decimal WeekRevenue { get; set; }
+        public decimal MonthRevenue { get; set; }
+    }
+
+    // ===== Commission DTO =====
+
+    public class SetCommissionDto
+    {
+        [Required]
+        [Range(0, 100)]
+        public decimal CommissionRate { get; set; }
     }
 }

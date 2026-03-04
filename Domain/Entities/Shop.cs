@@ -34,8 +34,8 @@ namespace Domain.Entities
         [MaxLength(20)]
         public string Phone { get; set; } = string.Empty;
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal WalletBalance { get; set; } = 0;
+        [Column(TypeName = "decimal(5,2)")]
+        public decimal CommissionRate { get; set; } = 5.00m; // % hoa hồng, admin set cho từng shop
 
         public bool IsActive { get; set; } = true;
 
@@ -49,5 +49,6 @@ namespace Domain.Entities
         public virtual ICollection<Product> Products { get; set; } = new List<Product>();
         public virtual ICollection<ShopStaff> Staff { get; set; } = new List<ShopStaff>();
         public virtual ICollection<WalletTransaction> WalletTransactions { get; set; } = new List<WalletTransaction>();
+        public virtual ICollection<Coupon> Coupons { get; set; } = new List<Coupon>();
     }
 }

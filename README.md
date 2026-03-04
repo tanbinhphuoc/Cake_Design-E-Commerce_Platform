@@ -66,7 +66,10 @@ dotnet run --project Cake_Design&E-Commerce_Platform
 
 
 
-5. **Truy cập Swagger:** Mở trình duyệt và truy cập `https://localhost:<port>/swagger` để kiểm thử các API endpoints.
+5. **Truy cập Swagger:** 
+   - Mở trình duyệt và truy cập `https://localhost:7208/swagger` để xem tài liệu API chi tiết.
+   - **Xác thực JWT:** Để truy cập các API yêu cầu xác thực (có icon ổ khóa đỏ), hãy gọi API `/api/auth/login` để lấy Token. Sau đó nhấn nút **Authorize** ở góc trên cùng của Swagger UI và dán token vào.
+   - **OpenAPI Schema:** Sau mỗi lần build thành công ở môi trường Development, file `docs/openapi.json` sẽ tự động được sinh ra (file này đã được loại bỏ trên Git). Bạn có thể lấy file này để import vào Postman hoặc chia sẻ cho team Front-end.
 
 ## 🤝 Đóng góp (Contributing)
 

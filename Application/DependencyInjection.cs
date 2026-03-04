@@ -9,6 +9,7 @@ namespace Application
         {
             services.AddScoped<ICartService, CartService>();
             services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<ICouponService, CouponService>();
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<IShopService, ShopService>();
             services.AddScoped<IUserService, UserService>();
@@ -18,6 +19,7 @@ namespace Application
             services.AddScoped<IReportService, ReportService>();
             services.AddScoped<ICategoryTagService, CategoryTagService>();
             services.AddScoped<IShipperService, ShipperService>();
+            services.AddScoped<IRevenueReportService, RevenueReportService>();
 
             return services;
         }

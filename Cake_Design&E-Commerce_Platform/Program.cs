@@ -65,6 +65,23 @@ namespace Cake_Design_E_Commerce_Platform
                         Array.Empty<string>()
                     }
                 });
+
+                // Add Role Filter
+                options.OperationFilter<Cake_Design_E_Commerce_Platform.Filters.SwaggerRoleOperationFilter>();
+
+                // Include XML Comments (sanitize invalid '&' in assembly name)
+                var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    var rawXml = File.ReadAllText(xmlPath);
+                    // Fix unescaped '&' that is NOT already an XML entity
+                    rawXml = System.Text.RegularExpressions.Regex.Replace(
+                        rawXml, @"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;");
+                    var sanitizedStream = new MemoryStream(Encoding.UTF8.GetBytes(rawXml));
+                    var xpathDoc = new System.Xml.XPath.XPathDocument(sanitizedStream);
+                    options.IncludeXmlComments(() => xpathDoc);
+                }
             });
             builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
@@ -153,7 +170,14 @@ namespace Cake_Design_E_Commerce_Platform
             var app = builder.Build();
 
             // Seed mock data on startup
-            await DataSeeder.SeedAllAsync(app.Services);
+            try
+            {
+                await DataSeeder.SeedAllAsync(app.Services);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Warning] Could not seed data. Reason: {ex.Message}");
+            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

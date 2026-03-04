@@ -27,6 +27,10 @@ namespace Application.Interfaces
         // Refund
         IRefundRequestRepository RefundRequests { get; }
 
+        // Coupon
+        ICouponRepository Coupons { get; }
+        ICouponUsageRepository CouponUsages { get; }
+
         Task<int> SaveChangesAsync();
     }
 }

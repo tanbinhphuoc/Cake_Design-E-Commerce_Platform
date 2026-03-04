@@ -367,3 +367,16 @@ api-test-data.json
 
 # Test API folder (local only - do NOT commit)
 test api/
+
+# Test Project (xUnit integration tests)
+Cake_Design&E-Commerce_Platform.Tests/
+
+# Test flow files
+TestApiFlow_ViettelPost_VNPay.txt
+
+# Generated docs (OpenAPI, API flow docs)
+docs/
+
+# AI tooling
+AGENTS.md
+.gemini/
