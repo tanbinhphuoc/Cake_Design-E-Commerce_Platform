@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
+using Cake_Design_E_Commerce_Platform.Middlewares;
 
 namespace Cake_Design_E_Commerce_Platform
 {
@@ -168,16 +169,9 @@ namespace Cake_Design_E_Commerce_Platform
             builder.Services.AddInfrastructureServices(builder.Configuration);
 
             var app = builder.Build();
-
-            // Seed mock data on startup
-            try
-            {
-                await DataSeeder.SeedAllAsync(app.Services);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Warning] Could not seed data. Reason: {ex.Message}");
-            }
+            app.UseMiddleware<ExceptionMiddleware>();
+            // Seed admin accounts on startup
+            await SeedAdminAccounts(app.Services);
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
@@ -196,4 +190,5 @@ namespace Cake_Design_E_Commerce_Platform
             app.Run();
         }
     }
+
 }

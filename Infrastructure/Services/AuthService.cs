@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Application.DTOs;
 using Application.Services;
@@ -7,6 +8,10 @@ using BCrypt.Net;
 using Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Google.Apis.Auth;
+using Application.Exceptions;
+// Thêm namespace chứa các Custom Exception của bạn vào đây (ví dụ: Application.Exceptions)
+// using Application.Exceptions; 
+
 namespace Infrastructure.Services
 {
     public class AuthService : IAuthService
@@ -39,30 +44,25 @@ namespace Infrastructure.Services
         public async Task RequestEmailOtpAsync(RequestEmailOtpDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.Email))
-                throw new InvalidOperationException("Email is required.");
+                throw new BadRequestException("Email is required."); // 400
 
-            // (Tùy ngữ cảnh) kiểm tra email đã tồn tại hay chưa
-            var existingEmail = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == dto.Email);
-            // Ví dụ: nếu là luồng đăng ký, không muốn cho email đã đăng ký:
-            if (existingEmail != null)
-                throw new InvalidOperationException("Email đã được sử dụng.");
-
-            // Rate limit 60s
             var throttleKey = $"otp:sent:{dto.Email}";
             if (await _redis.GetStringAsync(throttleKey) != null)
-                throw new InvalidOperationException("Vui lòng thử lại sau 60 giây.");
+                throw new TooManyRequestsException("Vui lòng thử lại sau 60 giây."); // 429
 
-            await _redis.SetStringAsync(throttleKey, "1", TimeSpan.FromSeconds(60));
-
-            // Giới hạn số lần/ngày (ví dụ 5 lần)
             var countKey = $"otp:count:{dto.Email}:{DateTime.UtcNow:yyyyMMdd}";
             var countStr = await _redis.GetStringAsync(countKey);
             var count = countStr is null ? 0 : int.Parse(countStr);
             if (count >= 5)
-                throw new InvalidOperationException("Bạn đã vượt quá số lần gửi OTP hôm nay.");
+                throw new TooManyRequestsException("Bạn đã vượt quá số lần gửi OTP hôm nay."); // 429
+
+            var existingEmail = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == dto.Email);
+            if (existingEmail != null)
+                throw new ConflictException("Email đã được sử dụng."); // 409
+
+            await _redis.SetStringAsync(throttleKey, "1", TimeSpan.FromSeconds(60));
             await _redis.SetStringAsync(countKey, (count + 1).ToString(), TimeSpan.FromDays(1));
 
-            // Sinh và lưu OTP
             var otp = Random.Shared.Next(100000, 999999).ToString();
             await _redis.SetStringAsync($"otp:email:{dto.Email}", otp, TimeSpan.FromMinutes(5));
             await _emailSender.SendAsync(dto.Email, "Your OTP", $"Your OTP is {otp} (valid 5 minutes)");
@@ -70,27 +70,28 @@ namespace Infrastructure.Services
 
         public async Task<AuthResponseDto> RegisterAsync(RegisterDto dto)
         {
-            // basic validate
             if (string.IsNullOrWhiteSpace(dto.Username) || dto.Username.Length < 3)
-                throw new InvalidOperationException("Username must be at least 3 characters.");
+                throw new BadRequestException("Username must be at least 3 characters."); // 400
             if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
-                throw new InvalidOperationException("Password must be at least 6 characters.");
+                throw new BadRequestException("Password must be at least 6 characters."); // 400
             if (string.IsNullOrWhiteSpace(dto.Email))
-                throw new InvalidOperationException("Email is required.");
+                throw new BadRequestException("Email is required."); // 400
             if (string.IsNullOrWhiteSpace(dto.Otp))
-                throw new InvalidOperationException("OTP is required.");
+                throw new BadRequestException("OTP is required."); // 400
 
-            // OTP check
             var otpStored = await _redis.GetStringAsync($"otp:email:{dto.Email}");
             if (otpStored == null || !otpStored.Equals(dto.Otp, StringComparison.Ordinal))
-                throw new InvalidOperationException("Invalid or expired OTP");
+                throw new BadRequestException("Invalid or expired OTP"); // 400
+
             await _redis.RemoveAsync($"otp:email:{dto.Email}");
 
-            // uniqueness
             var existingUser = await _unitOfWork.Accounts.GetByUsernameAsync(dto.Username);
-            if (existingUser != null) throw new InvalidOperationException("Username already exists.");
+            if (existingUser != null)
+                throw new ConflictException("Username already exists."); // 409
+
             var existingEmail = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == dto.Email);
-            if (existingEmail != null) throw new InvalidOperationException("Email already in use.");
+            if (existingEmail != null)
+                throw new ConflictException("Email already in use."); // 409
 
             var account = new Account
             {
@@ -117,7 +118,8 @@ namespace Infrastructure.Services
         {
             var account = await _unitOfWork.Accounts.GetByUsernameAsync(dto.Username);
             if (account == null || !BCrypt.Net.BCrypt.Verify(dto.Password, account.PasswordHash))
-                throw new UnauthorizedAccessException("Invalid username or password.");
+                throw new UnauthorizedAccessException("Invalid username or password."); // 401 (Dùng ngoại lệ có sẵn của C# là ổn)
+
             return await IssueTokens(account);
         }
 
@@ -125,12 +127,11 @@ namespace Infrastructure.Services
         {
             var info = await _refreshTokens.GetAsync(dto.RefreshToken);
             if (info == null || info.ExpiresAtUtc <= DateTime.UtcNow)
-                throw new UnauthorizedAccessException("Invalid or expired refresh token.");
+                throw new UnauthorizedAccessException("Invalid or expired refresh token."); // 401
 
             var account = await _unitOfWork.Accounts.GetByIdAsync(info.UserId)
-                          ?? throw new UnauthorizedAccessException("User not found.");
+                          ?? throw new UnauthorizedAccessException("User not found."); // 401 (Lỗi token map với 401 hợp lý hơn 404)
 
-            // rotate refresh token
             await _refreshTokens.InvalidateAsync(dto.RefreshToken);
             return await IssueTokens(account);
         }
@@ -148,13 +149,11 @@ namespace Infrastructure.Services
         public async Task<AuthResponseDto> LoginWithGoogleAsync(GoogleLoginDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.IdToken))
-                throw new UnauthorizedAccessException("Missing Google id_token.");
+                throw new BadRequestException("Missing Google id_token."); // 400
 
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
-                Audience = new[]
-    {
-        "198799505981-e8i090ffqfd0q0ki8u5huq979e8o6mto.apps.googleusercontent.com"    }
+                Audience = new[] { _googleClientId }
             };
 
             GoogleJsonWebSignature.Payload payload;
@@ -164,14 +163,15 @@ namespace Infrastructure.Services
             }
             catch
             {
-                throw new UnauthorizedAccessException("Invalid Google token.");
+                throw new UnauthorizedAccessException("Invalid Google token."); // 401
             }
 
             var email = payload.Email;
             var name = payload.Name ?? payload.GivenName ?? payload.FamilyName ?? email;
             var picture = payload.Picture;
+
             if (string.IsNullOrWhiteSpace(email))
-                throw new UnauthorizedAccessException("Google account missing email.");
+                throw new BadRequestException("Google account missing email."); // 400
 
             var account = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == email);
             if (account == null)
@@ -189,7 +189,7 @@ namespace Infrastructure.Services
                     WalletBalance = 0,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
-                    AvatarUrl = picture // nếu có field này
+                    AvatarUrl = picture
                 };
                 await _unitOfWork.Accounts.AddAsync(account);
                 await _unitOfWork.Carts.AddAsync(new Cart { Id = Guid.NewGuid(), UserId = account.Id });
@@ -199,7 +199,6 @@ namespace Infrastructure.Services
             return await IssueTokens(account);
         }
 
-        // Helper: issue access + refresh
         private async Task<AuthResponseDto> IssueTokens(Account account)
         {
             var tokenResult = _jwtTokenGenerator.GenerateToken(account);
@@ -217,6 +216,61 @@ namespace Infrastructure.Services
                 RefreshToken = $"{rt.UserId}:{rt.TokenId}",
                 RefreshTokenExpiresAtUtc = rt.ExpiresAtUtc
             };
+        }
+
+        public async Task RequestPasswordResetOtpAsync(ForgotPasswordDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Email))
+                throw new BadRequestException("Email is required."); // 400
+
+            var throttleKey = $"otp:reset:sent:{dto.Email}";
+            if (await _redis.GetStringAsync(throttleKey) != null)
+                throw new TooManyRequestsException("Vui lòng thử lại sau 60 giây."); // 429
+
+            var countKey = $"otp:reset:count:{dto.Email}:{DateTime.UtcNow:yyyyMMdd}";
+            var countStr = await _redis.GetStringAsync(countKey);
+            var count = countStr is null ? 0 : int.Parse(countStr);
+            if (count >= 5)
+                throw new TooManyRequestsException("Bạn đã vượt quá số lần gửi OTP hôm nay."); // 429
+
+            var user = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == dto.Email);
+
+            if (user == null)
+                return; // Im lặng kết thúc để bảo mật
+
+            await _redis.SetStringAsync(throttleKey, "1", TimeSpan.FromSeconds(60));
+            await _redis.SetStringAsync(countKey, (count + 1).ToString(), TimeSpan.FromDays(1));
+
+            var otp = Random.Shared.Next(100000, 999999).ToString();
+            await _redis.SetStringAsync($"otp:reset:email:{dto.Email}", otp, TimeSpan.FromMinutes(5));
+            await _emailSender.SendAsync(dto.Email, "OTP đặt lại mật khẩu", $"Mã OTP: {otp} (hiệu lực 5 phút)");
+        }
+
+        public async Task ResetPasswordAsync(ForgotPasswordResetDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Email) ||
+                string.IsNullOrWhiteSpace(dto.Otp) ||
+                string.IsNullOrWhiteSpace(dto.NewPassword))
+                throw new BadRequestException("Thiếu thông tin yêu cầu."); // 400
+
+            var otpStored = await _redis.GetStringAsync($"otp:reset:email:{dto.Email}");
+            if (otpStored == null || !otpStored.Equals(dto.Otp, StringComparison.Ordinal))
+                throw new BadRequestException("OTP không đúng hoặc đã hết hạn."); // 400
+
+            var user = await _unitOfWork.Accounts.FirstOrDefaultAsync(a => a.Email == dto.Email);
+            if (user == null)
+                throw new NotFoundException("Tài khoản không tồn tại."); // 404
+
+            if (dto.NewPassword.Length < 6)
+                throw new BadRequestException("Mật khẩu phải ít nhất 6 ký tự."); // 400
+
+            await _redis.RemoveAsync($"otp:reset:email:{dto.Email}");
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            user.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+
+            await _refreshTokens.InvalidateAllForUserAsync(user.Id);
         }
     }
 }

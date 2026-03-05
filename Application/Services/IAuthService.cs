@@ -9,6 +9,8 @@ namespace Application.Services
         Task<AuthResponseDto> RefreshAsync(RefreshTokenRequestDto dto);
         Task LogoutAsync(Guid userId, string? accessJti);
         Task<AuthResponseDto> LoginWithGoogleAsync(GoogleLoginDto dto);
-        Task RequestEmailOtpAsync(RequestEmailOtpDto dto);
+        Task  RequestEmailOtpAsync(RequestEmailOtpDto dto);
+        Task RequestPasswordResetOtpAsync(ForgotPasswordDto dto);
+        Task ResetPasswordAsync(ForgotPasswordResetDto dto);
     }
 }
