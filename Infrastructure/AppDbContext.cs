@@ -26,6 +26,20 @@ namespace Infrastructure
         public DbSet<WalletTransaction> WalletTransactions { get; set; } = null!;
         public DbSet<Payment> Payments { get; set; } = null!;
         public DbSet<Report> Reports { get; set; } = null!;
+        
+        // System Wallet
+        public DbSet<SystemWallet> SystemWallets { get; set; } = null!;
+        public DbSet<SystemWalletTransaction> SystemWalletTransactions { get; set; } = null!;
+
+        // Refund
+        public DbSet<RefundRequest> RefundRequests { get; set; } = null!;
+
+        // Coupon
+        public DbSet<Coupon> Coupons { get; set; } = null!;
+        public DbSet<CouponUsage> CouponUsages { get; set; } = null!;
+
+        // Shipper
+        public DbSet<ShipperDelivery> ShipperDeliveries { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -173,6 +187,21 @@ namespace Infrastructure
                       .WithOne(p => p.Order)
                       .HasForeignKey<Payment>(p => p.OrderId)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(o => o.Shipper)
+                      .WithMany()
+                      .HasForeignKey(o => o.ShipperId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(o => o.ShopCoupon)
+                      .WithMany()
+                      .HasForeignKey(o => o.ShopCouponId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(o => o.SystemCoupon)
+                      .WithMany()
+                      .HasForeignKey(o => o.SystemCouponId)
+                      .OnDelete(DeleteBehavior.SetNull);
             });
 
             // ===== OrderItem =====
@@ -200,6 +229,90 @@ namespace Infrastructure
             modelBuilder.Entity<ShopStaff>(entity =>
             {
                 entity.HasIndex(ss => new { ss.ShopId, ss.AccountId }).IsUnique();
+            });
+
+            // ===== SystemWallet =====
+            modelBuilder.Entity<SystemWallet>(entity =>
+            {
+                entity.HasIndex(w => w.WalletType).IsUnique();
+            });
+
+            // ===== SystemWalletTransaction =====
+            modelBuilder.Entity<SystemWalletTransaction>(entity =>
+            {
+                entity.HasOne(t => t.Order)
+                      .WithMany()
+                      .HasForeignKey(t => t.OrderId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasIndex(t => t.WalletType);
+                entity.HasIndex(t => t.CreatedAt);
+            });
+
+            // ===== RefundRequest =====
+            modelBuilder.Entity<RefundRequest>(entity =>
+            {
+                entity.HasOne(r => r.Order)
+                      .WithOne(o => o.RefundRequest)
+                      .HasForeignKey<RefundRequest>(r => r.OrderId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(r => r.Customer)
+                      .WithMany()
+                      .HasForeignKey(r => r.CustomerId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(r => r.Status);
+            });
+
+            // ===== Coupon =====
+            modelBuilder.Entity<Coupon>(entity =>
+            {
+                entity.HasIndex(c => c.Code).IsUnique();
+
+                entity.HasOne(c => c.Shop)
+                      .WithMany(s => s.Coupons)
+                      .HasForeignKey(c => c.ShopId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ===== CouponUsage =====
+            modelBuilder.Entity<CouponUsage>(entity =>
+            {
+                entity.HasOne(cu => cu.Coupon)
+                      .WithMany(c => c.Usages)
+                      .HasForeignKey(cu => cu.CouponId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(cu => cu.User)
+                      .WithMany()
+                      .HasForeignKey(cu => cu.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(cu => cu.Order)
+                      .WithMany()
+                      .HasForeignKey(cu => cu.OrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(cu => new { cu.CouponId, cu.UserId });
+            });
+
+            // ===== ShipperDelivery =====
+            modelBuilder.Entity<ShipperDelivery>(entity =>
+            {
+                entity.HasOne(d => d.Order)
+                      .WithMany()
+                      .HasForeignKey(d => d.OrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.Shipper)
+                      .WithMany()
+                      .HasForeignKey(d => d.ShipperId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(d => d.ShipperId);
+                entity.HasIndex(d => d.OrderId).IsUnique();
+                entity.HasIndex(d => d.DeliveredAt);
             });
 
             // Apply any configuration classes from assembly

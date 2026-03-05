@@ -1,0 +1,118 @@
+=============================================================
+HƯỚNG DẪN TEST API LUỒNG ĐẶT HÀNG TÍCH HỢP VIETTEL POST & VNPAY
+=============================================================
+
+Để test toàn bộ chu trình tính phí ship và thanh toán, bạn cần đi qua 3 bước chính.
+Vui lòng sử dụng Postman hoặc Swagger (với Authenticate Bearer Token của tài khoản Customer).
+
+---
+BƯỚC 1: CẬP NHẬT/TẠO MỚI ĐỊA CHỈ CHO KHÁCH HÀNG (ADDRESS)
+---
+Trong bảng Address, ta mới thêm 3 cột: ProvinceId, DistrictId, WardCode. 
+ViettelPost yêu cầu ID này phải là ID thực tế trên hệ thống của họ.
+Ví dụ: 
+- ProvinceId: 1 (Hà Nội)
+- DistrictId: 1 (Ba Đình)
+- WardCode: "00001" (Phường Phúc Xá)
+
+[API]: POST /api/addresses
+[Headers]: Authorization: Bearer {Customer_Token}
+[Body]:
+{
+  "receiverName": "Nguyen Van Test",
+  "phone": "0987654321",
+  "street": "123 Duong ABC",
+  "ward": "Phúc Xá",
+  "district": "Ba Đình",
+  "city": "Hà Nội",
+  "provinceId": 1,
+  "districtId": 1,
+  "wardCode": "00001",
+  "isDefault": true
+}
+=> KẾT QUẢ: Hệ thống trả về {AddressId} (Lưu lại chuỗi GUID này).
+
+---
+BƯỚC 2: CẬP NHẬT ĐỊA CHỈ CHO SHOP (SHOP - Nếu chưa có)
+---
+Shop cũng cần có Tọa độ/ID Tỉnh thành để ViettelPost tính quãng đường.
+Ví dụ Shop ở TP.HCM:
+- ProvinceId: 50 (Hồ Chí Minh)
+- DistrictId: 550 (Quận 1)
+
+[API]: PUT /api/shops/{ShopId}
+[Headers]: Authorization: Bearer {ShopOwner_Token}
+[Body]:
+{
+  "shopName": "Cake Shop HCM",
+  "address": "456 Duong XYZ, Quan 1",
+  "provinceId": 50,
+  "districtId": 550,
+  "wardCode": "26734",
+  ... (các field khác nếu API yêu cầu)
+}
+
+---
+BƯỚC 3: THÊM SẢN PHẨM VÀO GIỎ HÀNG (CART)
+---
+Thêm một sản phẩm của Shop trên vào Giỏ Hàng.
+
+[API]: POST /api/cart/items
+[Headers]: Authorization: Bearer {Customer_Token}
+[Body]:
+{
+  "productId": "{GUID_CUA_BANH_KEM}",
+  "quantity": 2
+}
+=> KẾT QUẢ: Bạn vào DB hoặc API Get Cart để lấy ra các {CartItemId}.
+
+---
+BƯỚC 4: TẠO ĐƠN HÀNG (CHECKOUT TÍNH PHÍ SHIP & ĐẨY QUA VNPAY)
+---
+Khi gọi API này, OrderService sẽ tự động nhặt `ProvinceId` và `DistrictId` từ {AddressId} của bạn và của `{ShopId}`, ném sang Viettel Post để tính tiền Ship. 
+Sau đó nó cộng dồn tiền Ship vào TotalAmount và sinh ra Link thanh toán VNPay.
+
+[API]: POST /api/orders
+[Headers]: Authorization: Bearer {Customer_Token}
+[Body]:
+{
+  "cartItemIds": [
+    "{GUID_CUA_CART_ITEM}"
+  ],
+  "shippingAddressId": "{GUID_CUA_ADDRESS_O_BUOC_1}",
+  "note": "Giao hang can than nhe",
+  "paymentMethod": "VNPay"
+}
+
+=> KẾT QUẢ MONG ĐỢI:
+{
+  "orders": [
+    {
+      "orderId": "...",
+      "shopId": "...",
+      "totalAmount": 260000,   <-- Đã bao gồm tiền bánh (vd 200k) + Tiền Ship (vd 60k do từ HCM ra HN)
+      "status": "Pending",
+      "shippingFee": 60000     <-- Đã bóc tách rõ tiền ship
+    }
+  ],
+  "totalAmount": 260000,
+  "paymentUrl": "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_Amount=26000000&...", <-- Copy Link này dán vào Chrome
+  "requiresPaymentRedirect": true,
+  "remainingBalance": 0
+}
+
+---
+BƯỚC 5: MÔ PHỎNG THANH TOÁN THÀNH CÔNG TRÊN VNPAY
+---
+1. Dán `paymentUrl` lên trình duyệt.
+2. Tại trang Sandbox của VNPAY, chọn ngân hàng NCB.
+3. Số thẻ Test: 9704198526191432198
+4. Tên chủ thẻ: NGUYEN VAN A
+5. Ngày phát hành: 07/15
+6. Mật khẩu OTP: 123456
+7. Bấm tiếp tục. 
+=> Trình duyệt sẽ Redirect về `http://localhost:3000/order-success?vnp_Amount=...` đồng thời Backend của bạn (`IpnUrl` hoặc `ReturnUrl`) sẽ nhận thông báo đổi `PaymentStatus` thành "Paid".
+
+=============================================================
+CHÚC BẠN TEST THÀNH CÔNG!
+=============================================================

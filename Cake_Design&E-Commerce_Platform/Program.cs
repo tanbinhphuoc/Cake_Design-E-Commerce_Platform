@@ -66,6 +66,23 @@ namespace Cake_Design_E_Commerce_Platform
                         Array.Empty<string>()
                     }
                 });
+
+                // Add Role Filter
+                options.OperationFilter<Cake_Design_E_Commerce_Platform.Filters.SwaggerRoleOperationFilter>();
+
+                // Include XML Comments (sanitize invalid '&' in assembly name)
+                var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    var rawXml = File.ReadAllText(xmlPath);
+                    // Fix unescaped '&' that is NOT already an XML entity
+                    rawXml = System.Text.RegularExpressions.Regex.Replace(
+                        rawXml, @"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;");
+                    var sanitizedStream = new MemoryStream(Encoding.UTF8.GetBytes(rawXml));
+                    var xpathDoc = new System.Xml.XPath.XPathDocument(sanitizedStream);
+                    options.IncludeXmlComments(() => xpathDoc);
+                }
             });
             builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
@@ -107,8 +124,12 @@ namespace Cake_Design_E_Commerce_Platform
                     OnTokenValidated = async context =>
                     {
                         var redis = context.HttpContext.RequestServices.GetRequiredService<IRedisCacheService>();
-                        var userId = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
-                        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+
+                        // "sub" bị auto-map thành ClaimTypes.NameIdentifier
+                        var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                        // "jti" bị auto-map thành "jti" HOẶC có thể không map — tìm cả hai
+                        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti)
+                               ?? context.Principal?.FindFirstValue("jti");
 
                         if (string.IsNullOrWhiteSpace(jti) || string.IsNullOrWhiteSpace(userId))
                         {
@@ -167,64 +188,6 @@ namespace Cake_Design_E_Commerce_Platform
             app.MapControllers();
 
             app.Run();
-        }
-
-        /// <summary>
-        /// Tự động tạo tài khoản Admin nếu chưa có trong database.
-        /// </summary>
-        private static async Task SeedAdminAccounts(IServiceProvider services)
-        {
-            using var scope = services.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            // Kiểm tra đã có tài khoản Admin chưa
-            var hasAdmin = await context.Accounts.AnyAsync(a => a.Role == "Admin");
-            if (hasAdmin)
-            {
-                Console.WriteLine("[Seed] Admin accounts already exist. Skipping seed.");
-                return;
-            }
-
-            Console.WriteLine("[Seed] No admin accounts found. Creating default admin accounts...");
-
-            var passwordHash = BCrypt.Net.BCrypt.HashPassword("123456");
-
-            var admins = new List<Account>
-            {
-                new Account
-                {
-                    Id = Guid.NewGuid(),
-                    Username = "admin1",
-                    PasswordHash = passwordHash,
-                    FullName = "Administrator 1",
-                    Email = "admin1@cakedesign.com",
-                    Role = "Admin",
-                    IsApproved = true,
-                    WalletBalance = 0,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                },
-                new Account
-                {
-                    Id = Guid.NewGuid(),
-                    Username = "admin2",
-                    PasswordHash = passwordHash,
-                    FullName = "Administrator 2",
-                    Email = "admin2@cakedesign.com",
-                    Role = "Admin",
-                    IsApproved = true,
-                    WalletBalance = 0,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                }
-            };
-
-            context.Accounts.AddRange(admins);
-            await context.SaveChangesAsync();
-
-            Console.WriteLine("[Seed] Created admin accounts:");
-            Console.WriteLine("  - Username: admin1 | Password: 123456");
-            Console.WriteLine("  - Username: admin2 | Password: 123456");
         }
     }
 

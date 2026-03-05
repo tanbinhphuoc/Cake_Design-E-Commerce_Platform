@@ -22,7 +22,7 @@ namespace Infrastructure.Services
             _returnUrl = configuration["Vnpay:ReturnUrl"] ?? throw new InvalidOperationException("Vnpay:ReturnUrl not configured");
         }
 
-        public string CreatePaymentUrl(Guid orderId, decimal amount, string orderInfo, string ipAddress)
+        public string CreatePaymentUrl(string txnRef, decimal amount, string orderInfo, string ipAddress)
         {
             var vnpayData = new SortedDictionary<string, string>
             {
@@ -31,7 +31,7 @@ namespace Infrastructure.Services
                 { "vnp_TmnCode", _tmnCode },
                 { "vnp_Amount", ((long)(amount * 100)).ToString() }, // VNPay requires amount * 100
                 { "vnp_CurrCode", "VND" },
-                { "vnp_TxnRef", orderId.ToString() },
+                { "vnp_TxnRef", txnRef },
                 { "vnp_OrderInfo", orderInfo },
                 { "vnp_OrderType", "other" },
                 { "vnp_Locale", "vn" },

@@ -54,6 +54,8 @@ namespace Application.Services
             if (product == null) throw new ArgumentException("Product not found.");
             var existing = await _uow.Reviews.GetUserReviewForProductAsync(userId, productId);
             if (existing != null) throw new InvalidOperationException("You have already reviewed this product.");
+            var hasPurchased = await _uow.Orders.HasUserPurchasedProductAsync(userId, productId);
+            if (!hasPurchased) throw new InvalidOperationException("You can only review products you have purchased and received.");
             if (dto.Rating < 1 || dto.Rating > 5) throw new ArgumentException("Rating must be between 1 and 5.");
 
             var review = new Review

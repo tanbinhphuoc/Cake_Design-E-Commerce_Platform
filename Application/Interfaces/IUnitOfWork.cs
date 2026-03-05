@@ -20,6 +20,20 @@ namespace Application.Interfaces
         IOrderItemRepository OrderItems { get; }
         IProductTagRepository ProductTags { get; }
 
+        // System Wallet
+        ISystemWalletRepository SystemWallets { get; }
+        ISystemWalletTransactionRepository SystemWalletTransactions { get; }
+
+        // Refund
+        IRefundRequestRepository RefundRequests { get; }
+
+        // Coupon
+        ICouponRepository Coupons { get; }
+        ICouponUsageRepository CouponUsages { get; }
+
+        // Shipper
+        IShipperDeliveryRepository ShipperDeliveries { get; }
+
         Task<int> SaveChangesAsync();
     }
 }

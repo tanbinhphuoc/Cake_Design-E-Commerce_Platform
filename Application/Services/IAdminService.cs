@@ -10,5 +10,15 @@ namespace Application.Services
         Task<List<object>> GetAllUsersAsync(string? role);
         Task<List<object>> GetAllShopsAsync();
         Task<string> ChangeUserRoleAsync(Guid userId, string newRole);
+        
+        // System Wallet
+        Task<List<object>> GetSystemWalletsAsync();
+        Task<List<object>> GetSystemWalletTransactionsAsync(string? walletType, int count = 50);
+
+        // Commission
+        Task<string> SetShopCommissionAsync(Guid shopId, decimal commissionRate);
+
+        // Account Management
+        Task<object> CreateAccountAsync(AdminCreateAccountDto dto);
     }
 }

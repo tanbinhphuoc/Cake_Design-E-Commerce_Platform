@@ -24,6 +24,20 @@ namespace Infrastructure
         public ICartItemRepository CartItems { get; }
         public IOrderItemRepository OrderItems { get; }
         public IProductTagRepository ProductTags { get; }
+        
+        // System Wallet
+        public ISystemWalletRepository SystemWallets { get; }
+        public ISystemWalletTransactionRepository SystemWalletTransactions { get; }
+
+        // Refund
+        public IRefundRequestRepository RefundRequests { get; }
+
+        // Coupon
+        public ICouponRepository Coupons { get; }
+        public ICouponUsageRepository CouponUsages { get; }
+
+        // Shipper
+        public IShipperDeliveryRepository ShipperDeliveries { get; }
 
         public UnitOfWork(AppDbContext context)
         {
@@ -45,6 +59,20 @@ namespace Infrastructure
             CartItems = new CartItemRepository(context);
             OrderItems = new OrderItemRepository(context);
             ProductTags = new ProductTagRepository(context);
+            
+            // System Wallet
+            SystemWallets = new SystemWalletRepository(context);
+            SystemWalletTransactions = new SystemWalletTransactionRepository(context);
+
+            // Refund
+            RefundRequests = new RefundRequestRepository(context);
+
+            // Coupon
+            Coupons = new CouponRepository(context);
+            CouponUsages = new CouponUsageRepository(context);
+
+            // Shipper
+            ShipperDeliveries = new ShipperDeliveryRepository(context);
         }
 
         public async Task<int> SaveChangesAsync()

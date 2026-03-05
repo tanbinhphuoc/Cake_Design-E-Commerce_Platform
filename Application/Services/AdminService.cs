@@ -83,12 +83,102 @@ namespace Application.Services
         {
             var account = await _uow.Accounts.GetByIdAsync(userId);
             if (account == null) throw new ArgumentException("User not found.");
-            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff" };
+            var valid = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff", "Shipper" };
             if (!valid.Contains(newRole)) throw new ArgumentException("Invalid role.");
             account.Role = newRole;
             account.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync();
             return $"User role updated to '{newRole}'.";
+        }
+
+        // === System Wallet ===
+
+        public async Task<List<object>> GetSystemWalletsAsync()
+        {
+            var wallets = await _uow.SystemWallets.GetAllAsync();
+            return wallets.Select(w => (object)new
+            {
+                w.Id,
+                w.WalletType,
+                w.Balance,
+                w.Description,
+                w.CreatedAt,
+                w.UpdatedAt
+            }).ToList();
+        }
+
+        public async Task<List<object>> GetSystemWalletTransactionsAsync(string? walletType, int count = 50)
+        {
+            List<SystemWalletTransaction> transactions;
+            
+            if (!string.IsNullOrEmpty(walletType))
+                transactions = await _uow.SystemWalletTransactions.GetByWalletTypeAsync(walletType);
+            else
+                transactions = await _uow.SystemWalletTransactions.GetRecentAsync(count);
+
+            return transactions.Select(t => (object)new
+            {
+                t.Id,
+                t.WalletType,
+                t.Amount,
+                t.TransactionType,
+                t.BalanceAfter,
+                t.OrderId,
+                t.RelatedUserId,
+                t.Description,
+                t.CreatedAt
+            }).ToList();
+        }
+
+        // === Commission ===
+
+        public async Task<string> SetShopCommissionAsync(Guid shopId, decimal commissionRate)
+        {
+            var shop = await _uow.Shops.GetByIdAsync(shopId);
+            if (shop == null) throw new ArgumentException("Shop not found.");
+            if (commissionRate < 0 || commissionRate > 100)
+                throw new ArgumentException("Commission rate must be between 0 and 100.");
+            shop.CommissionRate = commissionRate;
+            shop.UpdatedAt = DateTime.UtcNow;
+            await _uow.SaveChangesAsync();
+            return $"Commission rate for '{shop.ShopName}' set to {commissionRate}%.";
+        }
+
+        // === Account Management ===
+
+        public async Task<object> CreateAccountAsync(AdminCreateAccountDto dto)
+        {
+            var validRoles = new[] { "Customer", "ShopOwner", "Admin", "Staff", "SystemStaff", "Shipper" };
+            if (!validRoles.Contains(dto.Role))
+                throw new ArgumentException($"Invalid role '{dto.Role}'. Valid roles: {string.Join(", ", validRoles)}");
+
+            var existingUsername = await _uow.Accounts.FindAsync(a => a.Username == dto.Username);
+            if (existingUsername.Any())
+                throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+
+            var existingEmail = await _uow.Accounts.FindAsync(a => a.Email == dto.Email);
+            if (existingEmail.Any())
+                throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+
+            var account = new Account
+            {
+                Id = Guid.NewGuid(),
+                Username = dto.Username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                FullName = dto.FullName,
+                Email = dto.Email,
+                Phone = dto.Phone,
+                Role = dto.Role,
+                IsApproved = true,
+                WalletBalance = 0,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _uow.Accounts.AddAsync(account);
+            await _uow.SaveChangesAsync();
+
+            return new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.CreatedAt };
         }
     }
 }

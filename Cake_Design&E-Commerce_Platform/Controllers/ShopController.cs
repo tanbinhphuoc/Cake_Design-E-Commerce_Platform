@@ -11,7 +11,12 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
     public class ShopController : ControllerBase
     {
         private readonly IShopService _shopService;
-        public ShopController(IShopService shopService) { _shopService = shopService; }
+        private readonly IRevenueReportService _revenueService;
+        public ShopController(IShopService shopService, IRevenueReportService revenueService)
+        {
+            _shopService = shopService;
+            _revenueService = revenueService;
+        }
 
         [HttpPost("shop/request"), Authorize(Roles = "Customer")]
         public async Task<IActionResult> RequestShop([FromBody] UpdateShopDto dto)
@@ -21,7 +26,7 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             catch (InvalidOperationException ex) { return BadRequest(new { ex.Message }); }
         }
 
-        [HttpPost("admin/shop/approve/{userId:guid}"), Authorize(Roles = "Admin,Staff")]
+        [HttpPost("admin/shop/approve/{userId:guid}"), Authorize(Roles = "Admin,SystemStaff")]
         public async Task<IActionResult> ApproveShop(Guid userId)
         {
             try { return Ok(new { Message = await _shopService.ApproveShopAsync(userId) }); }
@@ -41,6 +46,15 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
         {
             var userId = GetUserId(); if (userId == null) return Unauthorized();
             try { return Ok(new { Message = await _shopService.UpdateMyShopAsync(userId.Value, dto) }); }
+            catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
+        }
+
+        // Revenue Report
+        [HttpGet("shops/me/revenue"), Authorize(Roles = "ShopOwner")]
+        public async Task<IActionResult> GetShopRevenue()
+        {
+            var userId = GetUserId(); if (userId == null) return Unauthorized();
+            try { return Ok(await _revenueService.GetShopRevenueAsync(userId.Value)); }
             catch (ArgumentException ex) { return NotFound(new { ex.Message }); }
         }
 
