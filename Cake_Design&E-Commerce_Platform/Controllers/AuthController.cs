@@ -89,5 +89,32 @@ namespace Cake_Design_E_Commerce_Platform.Controllers
             await _authService.LogoutAsync(userId, jti);
             return Ok(new { Message = "Logged out" });
         }
+        [HttpPost("forgot-password/request-otp")]
+        public async Task<IActionResult> ForgotPasswordRequestOtp([FromBody] ForgotPasswordDto dto)
+        {
+            try
+            {
+                await _authService.RequestPasswordResetOtpAsync(dto);
+                return Ok(new { Message = "OTP sent" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+        }
+
+        [HttpPost("forgot-password/reset")]
+        public async Task<IActionResult> ForgotPasswordReset([FromBody] ForgotPasswordResetDto dto)
+        {
+            try
+            {
+                await _authService.ResetPasswordAsync(dto);
+                return Ok(new { Message = "Password updated" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+        }
     }
 }

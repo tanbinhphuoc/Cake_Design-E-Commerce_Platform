@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
+using Cake_Design_E_Commerce_Platform.Middlewares;
 
 namespace Cake_Design_E_Commerce_Platform
 {
@@ -147,7 +148,7 @@ namespace Cake_Design_E_Commerce_Platform
             builder.Services.AddInfrastructureServices(builder.Configuration);
 
             var app = builder.Build();
-
+            app.UseMiddleware<ExceptionMiddleware>();
             // Seed admin accounts on startup
             await SeedAdminAccounts(app.Services);
 
@@ -226,4 +227,5 @@ namespace Cake_Design_E_Commerce_Platform
             Console.WriteLine("  - Username: admin2 | Password: 123456");
         }
     }
+
 }

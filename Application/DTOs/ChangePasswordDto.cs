@@ -15,4 +15,5 @@ namespace Application.DTOs
         [Compare("NewPassword", ErrorMessage = "New password and confirm password do not match.")]
         public string ConfirmPassword { get; set; } = string.Empty;
     }
+
 }
